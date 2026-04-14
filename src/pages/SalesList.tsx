@@ -141,6 +141,22 @@ const SalesList = () => {
         </DialogContent>
       </Dialog>
 
+      {printSale && (
+        <InvoiceModal
+          open={!!printSale}
+          onClose={() => setPrintSale(null)}
+          data={{
+            invoiceNo: printSale.invoiceNo, date: printSale.date,
+            customerName: printSale.customerName, phone: printSale.customerPhone,
+            items: printSale.items, subtotal: printSale.subtotal,
+            vat: printSale.vat, vatPercent: printSale.vatPercent,
+            discount: printSale.discount, total: printSale.total,
+            paid: printSale.paid, due: printSale.due, change: printSale.change,
+            type: "Sale",
+          }}
+        />
+      )}
+
       <button onClick={() => navigate("/add-sale")} className="fixed bottom-24 right-5 bg-primary text-primary-foreground px-5 py-3 rounded-full shadow-xl font-semibold text-sm">+ New Sale</button>
       <BottomNav />
     </div>

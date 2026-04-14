@@ -2,11 +2,12 @@ import { useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { store, Purchase } from "@/lib/store";
-import { Search, Trash2, Eye, RotateCcw, MoreVertical } from "lucide-react";
+import { Search, Trash2, Eye, RotateCcw, MoreVertical, Printer } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import InvoiceModal from "@/components/InvoiceModal";
 
 const PurchaseList = () => {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ const PurchaseList = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewPurchase, setViewPurchase] = useState<Purchase | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
+  const [printPurchase, setPrintPurchase] = useState<Purchase | null>(null);
 
   const filtered = purchases.filter(p =>
     p.supplierName.toLowerCase().includes(search.toLowerCase()) || p.invoiceNo.toLowerCase().includes(search.toLowerCase())
@@ -62,6 +64,7 @@ const PurchaseList = () => {
                       {menuId === p.id && (
                         <div className="absolute right-0 top-8 bg-card border border-border rounded-lg shadow-lg z-10 min-w-[140px]">
                           <button onClick={() => { setViewPurchase(p); setMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent"><Eye size={14} /> View</button>
+                          <button onClick={() => { setPrintPurchase(p); setMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent"><Printer size={14} /> Print</button>
                           {!p.returned && <>
                             <button onClick={() => navigate(`/purchase-return/${p.id}`)} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent text-warning"><RotateCcw size={14} /> Return</button>
                             <button onClick={() => deletePurchase(p.id)} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent text-destructive"><Trash2 size={14} /> Delete</button>
@@ -89,6 +92,22 @@ const PurchaseList = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {printPurchase && (
+        <InvoiceModal
+          open={!!printPurchase}
+          onClose={() => setPrintPurchase(null)}
+          data={{
+            invoiceNo: printPurchase.invoiceNo, date: printPurchase.date,
+            supplierName: printPurchase.supplierName,
+            items: printPurchase.items.map(i => ({ ...i, discount: 0 })),
+            subtotal: printPurchase.subtotal, discount: printPurchase.discount,
+            total: printPurchase.total, paid: printPurchase.paid, due: printPurchase.due,
+            type: "Purchase",
+          }}
+        />
+      )}
+
       <button onClick={() => navigate("/add-purchase")} className="fixed bottom-24 right-5 bg-primary text-primary-foreground px-5 py-3 rounded-full shadow-xl font-semibold text-sm">+ New Purchase</button>
       <BottomNav />
     </div>
