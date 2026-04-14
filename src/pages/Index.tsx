@@ -55,13 +55,14 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      {/* Header */}
-      <div className="bg-primary px-5 pt-6 pb-8 rounded-b-3xl">
-        <div className="flex items-center gap-3 mb-5 bg-white rounded-2xl px-4 py-2">
-          <img src={logo} alt="Key Doctors Solutions" className="h-10 object-contain" />
-        </div>
+      {/* Top Nav - White */}
+      <div className="bg-white px-5 py-3 shadow-sm">
+        <img src={logo} alt="Key Doctors Solutions" className="h-10 object-contain" />
+      </div>
 
-        <div className="bg-primary-foreground/15 backdrop-blur rounded-2xl p-4 border border-primary-foreground/20">
+      {/* Summary Card */}
+      <div className="bg-primary px-5 pt-5 pb-8 rounded-b-3xl">
+        <div className="bg-black/30 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-white font-bold text-base">Today's Summary</h2>
           </div>
