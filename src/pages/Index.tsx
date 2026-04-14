@@ -1,7 +1,7 @@
 import {
   ShoppingCart, Users, ShoppingBag, Package, ListChecks, BarChart3,
   FileText, TrendingUp, Wallet, Receipt, DollarSign, CreditCard,
-  UserCheck, Truck, Tags, BookOpen, Landmark, Users2
+  UserCheck, Truck, Tags, BookOpen, Landmark, Users2, Bell, UserCircle
 } from "lucide-react";
 import MenuCard from "@/components/MenuCard";
 import BottomNav from "@/components/BottomNav";
@@ -56,13 +56,22 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background pb-20">
       {/* Top Nav - White */}
-      <div className="bg-white px-5 py-3 shadow-sm">
+      <div className="bg-white px-5 py-3 shadow-sm flex items-center justify-between">
         <img src={logo} alt="Key Doctors Solutions" className="h-10 object-contain" />
+        <div className="flex items-center gap-3">
+          <button className="relative p-2 rounded-full hover:bg-muted transition-colors">
+            <Bell className="h-5 w-5 text-foreground" />
+            <span className="absolute top-1 right-1 h-2 w-2 bg-destructive rounded-full" />
+          </button>
+          <button className="p-1 rounded-full hover:bg-muted transition-colors">
+            <UserCircle className="h-8 w-8 text-foreground" />
+          </button>
+        </div>
       </div>
 
       {/* Summary Card */}
       <div className="bg-primary px-5 pt-5 pb-8 rounded-b-3xl">
-        <div className="bg-black/30 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
+        <div className="bg-black rounded-2xl p-4 border border-white/10">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-white font-bold text-base">Today's Summary</h2>
           </div>
