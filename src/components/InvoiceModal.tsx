@@ -1,6 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useRef } from "react";
-import { Printer, X } from "lucide-react";
+import { Printer } from "lucide-react";
+import { store } from "@/lib/store";
 
 interface InvoiceItem {
   name: string;
@@ -35,6 +36,7 @@ interface InvoiceModalProps {
 
 const InvoiceModal = ({ open, onClose, data }: InvoiceModalProps) => {
   const printRef = useRef<HTMLDivElement>(null);
+  const biz = store.getBusinessProfile();
 
   const handlePrint = () => {
     const content = printRef.current;
@@ -82,9 +84,10 @@ const InvoiceModal = ({ open, onClose, data }: InvoiceModalProps) => {
 
         <div ref={printRef}>
           <div className="header">
-            <h1>POS Pro</h1>
-            <p>Your Business Address, City, Country</p>
-            <p>Phone: +1234567890 | Email: info@pospro.com</p>
+            {biz.logo && <img src={biz.logo} alt="Logo" style={{ width: 48, height: 48, objectFit: "contain", margin: "0 auto 6px" }} />}
+            <h1>{biz.companyName}</h1>
+            <p>{biz.address}</p>
+            <p>Phone: {biz.phone} | Email: {biz.email}</p>
           </div>
 
           <div className="meta" style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 12 }}>
@@ -115,8 +118,8 @@ const InvoiceModal = ({ open, onClose, data }: InvoiceModalProps) => {
                   <td style={{ padding: "6px 8px", border: "1px solid #ddd", fontSize: 11 }}>{i + 1}</td>
                   <td style={{ padding: "6px 8px", border: "1px solid #ddd", fontSize: 11 }}>{item.name}</td>
                   <td style={{ padding: "6px 8px", border: "1px solid #ddd", textAlign: "right", fontSize: 11 }}>{item.quantity}</td>
-                  <td style={{ padding: "6px 8px", border: "1px solid #ddd", textAlign: "right", fontSize: 11 }}>$ {item.unitPrice.toFixed(2)}</td>
-                  <td style={{ padding: "6px 8px", border: "1px solid #ddd", textAlign: "right", fontSize: 11 }}>$ {(item.quantity * item.unitPrice).toFixed(2)}</td>
+                  <td style={{ padding: "6px 8px", border: "1px solid #ddd", textAlign: "right", fontSize: 11 }}>{biz.currency} {item.unitPrice.toFixed(2)}</td>
+                  <td style={{ padding: "6px 8px", border: "1px solid #ddd", textAlign: "right", fontSize: 11 }}>{biz.currency} {(item.quantity * item.unitPrice).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -124,39 +127,39 @@ const InvoiceModal = ({ open, onClose, data }: InvoiceModalProps) => {
 
           <div style={{ marginLeft: "auto", width: 200 }}>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 11 }}>
-              <span>Subtotal:</span><span>$ {data.subtotal.toFixed(2)}</span>
+              <span>Subtotal:</span><span>{biz.currency} {data.subtotal.toFixed(2)}</span>
             </div>
             {(data.vat ?? 0) > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 11 }}>
-                <span>VAT ({data.vatPercent}%):</span><span>$ {data.vat?.toFixed(2)}</span>
+                <span>VAT ({data.vatPercent}%):</span><span>{biz.currency} {data.vat?.toFixed(2)}</span>
               </div>
             )}
             {data.discount > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 11 }}>
-                <span>Discount:</span><span>- $ {data.discount.toFixed(2)}</span>
+                <span>Discount:</span><span>- {biz.currency} {data.discount.toFixed(2)}</span>
               </div>
             )}
             <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0 3px", fontSize: 13, fontWeight: "bold", borderTop: "2px solid #333" }}>
-              <span>Total:</span><span>$ {data.total.toFixed(2)}</span>
+              <span>Total:</span><span>{biz.currency} {data.total.toFixed(2)}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 11 }}>
-              <span>Paid:</span><span>$ {data.paid.toFixed(2)}</span>
+              <span>Paid:</span><span>{biz.currency} {data.paid.toFixed(2)}</span>
             </div>
             {data.due > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 11, color: "#e74c3c" }}>
-                <span>Due:</span><span>$ {data.due.toFixed(2)}</span>
+                <span>Due:</span><span>{biz.currency} {data.due.toFixed(2)}</span>
               </div>
             )}
             {(data.change ?? 0) > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 11, color: "#27ae60" }}>
-                <span>Change:</span><span>$ {data.change?.toFixed(2)}</span>
+                <span>Change:</span><span>{biz.currency} {data.change?.toFixed(2)}</span>
               </div>
             )}
           </div>
 
           <div className="footer" style={{ textAlign: "center", marginTop: 20, fontSize: 10, color: "#999", borderTop: "1px solid #ddd", paddingTop: 8 }}>
             <p>Thank you for your business!</p>
-            <p>Generated by POS Pro</p>
+            <p>Generated by {biz.companyName}</p>
           </div>
         </div>
       </DialogContent>
