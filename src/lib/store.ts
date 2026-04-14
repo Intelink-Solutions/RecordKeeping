@@ -529,7 +529,7 @@ export const store = {
     try {
       const data = localStorage.getItem(KEYS.businessProfile);
       return data ? JSON.parse(data) : {
-        companyName: "POS Pro",
+        companyName: "Key Doctors Solutions",
         address: "Your Business Address, City, Country",
         phone: "+1234567890",
         email: "info@pospro.com",
@@ -538,7 +538,7 @@ export const store = {
         darkMode: false,
       };
     } catch {
-      return { companyName: "POS Pro", address: "Your Business Address, City, Country", phone: "+1234567890", email: "info@pospro.com", logo: "", currency: "$", darkMode: false };
+      return { companyName: "Key Doctors Solutions", address: "Your Business Address, City, Country", phone: "+1234567890", email: "info@keydoctors.com", logo: "", currency: "$", darkMode: false };
     }
   },
   saveBusinessProfile: (p: BusinessProfile) => localStorage.setItem(KEYS.businessProfile, JSON.stringify(p)),
