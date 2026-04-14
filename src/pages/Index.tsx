@@ -57,13 +57,13 @@ const Index = () => {
     <div className="min-h-screen bg-background pb-20">
       {/* Header */}
       <div className="bg-primary px-5 pt-6 pb-8 rounded-b-3xl">
-        <div className="flex items-center gap-3 mb-5">
+        <div className="flex items-center gap-3 mb-5 bg-white rounded-2xl px-4 py-2">
           <img src={logo} alt="Key Doctors Solutions" className="h-10 object-contain" />
         </div>
 
         <div className="bg-primary-foreground/15 backdrop-blur rounded-2xl p-4 border border-primary-foreground/20">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-primary-foreground font-bold text-base">Today's Summary</h2>
+            <h2 className="text-white font-bold text-base">Today's Summary</h2>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {[
@@ -73,8 +73,8 @@ const Index = () => {
               { label: "Expense", value: `$ ${totalExpense.toLocaleString()}` },
             ].map((item) => (
               <div key={item.label}>
-                <p className="text-primary-foreground/70 text-xs font-medium">{item.label}</p>
-                <p className="text-primary-foreground font-bold text-lg">{item.value}</p>
+                <p className="text-white/70 text-xs font-medium">{item.label}</p>
+                <p className="text-white font-bold text-lg">{item.value}</p>
               </div>
             ))}
           </div>
