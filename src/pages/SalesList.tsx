@@ -93,6 +93,7 @@ const SalesList = () => {
                       {menuSaleId === s.id && (
                         <div className="absolute right-0 top-8 bg-card border border-border rounded-lg shadow-lg z-10 min-w-[140px]">
                           <button onClick={() => { setViewSale(s); setMenuSaleId(null); }} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent"><Eye size={14} /> View Invoice</button>
+                          <button onClick={() => { setPrintSale(s); setMenuSaleId(null); }} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent"><Printer size={14} /> Print</button>
                           {!s.returned && (
                             <>
                               <button onClick={() => { navigate(`/sale-return/${s.id}`); }} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent text-warning"><RotateCcw size={14} /> Sale Return</button>
