@@ -1,0 +1,197 @@
+import { useState, useMemo } from "react";
+import { Minus, Plus, X, Search } from "lucide-react";
+import PageHeader from "@/components/PageHeader";
+import { Input } from "@/components/ui/input";
+import { store, PurchaseItem, Product } from "@/lib/store";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useNavigate } from "react-router-dom";
+import { useToast } from "@/hooks/use-toast";
+
+const AddPurchase = () => {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const products = store.getProducts();
+  const suppliers = store.getSuppliers();
+  const categories = store.getCategories();
+  const brands = store.getBrands();
+
+  const [invoiceNo] = useState(store.getNextPurchaseInvoice());
+  const [date] = useState(new Date().toISOString().split("T")[0]);
+  const [supplierId, setSupplierId] = useState("");
+  const [items, setItems] = useState<PurchaseItem[]>([]);
+  const [discount, setDiscount] = useState(0);
+  const [receivedAmount, setReceivedAmount] = useState(0);
+  const [showPicker, setShowPicker] = useState(false);
+  const [showQtyDialog, setShowQtyDialog] = useState(false);
+  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
+  const [pendingQty, setPendingQty] = useState(1);
+  const [pendingPrice, setPendingPrice] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterBrand, setFilterBrand] = useState("");
+
+  const selectedSupplier = suppliers.find(s => s.id === supplierId);
+
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchSearch = !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.code.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchCat = !filterCategory || p.categoryId === filterCategory;
+      const matchBrand = !filterBrand || p.brandId === filterBrand;
+      return matchSearch && matchCat && matchBrand;
+    });
+  }, [products, searchQuery, filterCategory, filterBrand]);
+
+  const subtotal = items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+  const total = subtotal - discount;
+  const changeAmount = receivedAmount > total ? receivedAmount - total : 0;
+  const dueAmount = receivedAmount < total ? total - receivedAmount : 0;
+
+  const selectProduct = (p: Product) => {
+    if (items.find(i => i.productId === p.id)) return;
+    setPendingProduct(p);
+    setPendingQty(1);
+    setPendingPrice(p.costPrice);
+    setShowPicker(false);
+    setShowQtyDialog(true);
+  };
+
+  const confirmAdd = () => {
+    if (!pendingProduct) return;
+    setItems([...items, { productId: pendingProduct.id, name: pendingProduct.name, quantity: pendingQty, unitPrice: pendingPrice }]);
+    setShowQtyDialog(false);
+    setPendingProduct(null);
+  };
+
+  const updateQty = (idx: number, delta: number) => {
+    setItems(items.map((it, i) => i === idx ? { ...it, quantity: Math.max(1, it.quantity + delta) } : it));
+  };
+
+  const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
+
+  const submit = () => {
+    if (!supplierId || items.length === 0) {
+      toast({ title: "Please select supplier and add items", variant: "destructive" });
+      return;
+    }
+    const status = dueAmount > 0 ? (receivedAmount > 0 ? "Partial" : "Due") : "Paid";
+    const purchasesList = store.getPurchases();
+    purchasesList.unshift({
+      id: store.nextId(), invoiceNo, date,
+      supplierId, supplierName: selectedSupplier?.name || "",
+      items, subtotal, discount, total,
+      paid: Math.min(receivedAmount, total), due: dueAmount,
+      status, returned: false,
+    });
+    store.savePurchases(purchasesList);
+
+    // Update stock
+    const updatedProducts = products.map(p => {
+      const item = items.find(i => i.productId === p.id);
+      return item ? { ...p, stock: p.stock + item.quantity, costPrice: item.unitPrice } : p;
+    });
+    store.saveProducts(updatedProducts);
+
+    if (selectedSupplier && dueAmount > 0) {
+      const updatedSuppliers = suppliers.map(s => s.id === supplierId ? { ...s, due: s.due + dueAmount } : s);
+      store.saveSuppliers(updatedSuppliers);
+    }
+
+    toast({ title: "Purchase saved!" });
+    navigate("/purchases");
+  };
+
+  return (
+    <div className="min-h-screen bg-background pb-6">
+      <PageHeader title="Create Purchase" />
+      <div className="px-4 py-4 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="text-xs text-muted-foreground mb-1 block">Invoice No.</label><Input value={invoiceNo} readOnly className="bg-muted" /></div>
+          <div><label className="text-xs text-muted-foreground mb-1 block">Date</label><Input type="date" value={date} readOnly className="bg-muted" /></div>
+        </div>
+
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Supplier</label>
+          <Select value={supplierId} onValueChange={setSupplierId}>
+            <SelectTrigger><SelectValue placeholder="Select Supplier" /></SelectTrigger>
+            <SelectContent>{suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+
+        {items.length > 0 && (
+          <div className="bg-card rounded-xl overflow-hidden border border-border">
+            <div className="px-4 py-2.5 bg-accent"><span className="text-sm font-semibold">Cart ({items.length})</span></div>
+            {items.map((item, idx) => (
+              <div key={item.productId} className="px-4 py-3 flex items-center border-b border-border last:border-0">
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm truncate">{item.name}</p>
+                  <p className="text-xs text-muted-foreground">{item.quantity} × ${item.unitPrice} = ${(item.quantity * item.unitPrice).toFixed(2)}</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => updateQty(idx, -1)} className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center"><Minus size={14} /></button>
+                  <span className="w-6 text-center font-bold text-sm">{item.quantity}</span>
+                  <button onClick={() => updateQty(idx, 1)} className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center"><Plus size={14} /></button>
+                  <button onClick={() => removeItem(idx)} className="w-7 h-7 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center"><X size={14} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button onClick={() => setShowPicker(true)} className="w-full py-3 bg-accent text-primary font-semibold rounded-xl border-2 border-dashed border-primary/30">+ Add Products</button>
+
+        <div className="bg-card rounded-xl p-4 border border-border space-y-2.5">
+          <Row label="Sub Total" value={`$ ${subtotal.toFixed(2)}`} />
+          <div className="flex justify-between items-center text-sm"><span className="font-semibold">Discount</span><Input type="number" value={discount} onChange={e => setDiscount(Number(e.target.value))} className="w-20 h-8 text-right text-sm" /></div>
+          <div className="flex justify-between text-sm font-bold border-t border-border pt-2"><span>Total</span><span className="text-primary">$ {total.toFixed(2)}</span></div>
+          <div className="flex justify-between items-center text-sm"><span className="font-semibold">Paid</span><Input type="number" value={receivedAmount} onChange={e => setReceivedAmount(Number(e.target.value))} className="w-24 h-8 text-right text-sm" /></div>
+          {changeAmount > 0 && <Row label="Change" value={`$ ${changeAmount.toFixed(2)}`} className="text-success" />}
+          {dueAmount > 0 && <Row label="Due" value={`$ ${dueAmount.toFixed(2)}`} className="text-destructive" />}
+        </div>
+
+        <div className="flex gap-3">
+          <button onClick={() => navigate(-1)} className="flex-1 bg-muted text-muted-foreground font-bold py-3.5 rounded-xl">Cancel</button>
+          <button onClick={submit} className="flex-1 bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg">Save</button>
+        </div>
+      </div>
+
+      {/* Product Picker */}
+      <Dialog open={showPicker} onOpenChange={setShowPicker}>
+        <DialogContent className="max-h-[85vh] flex flex-col">
+          <DialogHeader><DialogTitle>Select Product</DialogTitle></DialogHeader>
+          <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-9" /></div>
+          <div className="flex gap-2">
+            <Select value={filterCategory} onValueChange={setFilterCategory}><SelectTrigger className="text-xs h-8"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem>{categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select>
+            <Select value={filterBrand} onValueChange={setFilterBrand}><SelectTrigger className="text-xs h-8"><SelectValue placeholder="Brand" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem>{brands.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select>
+          </div>
+          <div className="space-y-1 overflow-y-auto flex-1">
+            {filteredProducts.map(p => (
+              <button key={p.id} onClick={() => selectProduct(p)} className="w-full flex items-center justify-between p-3 hover:bg-accent rounded-lg">
+                <div className="text-left"><span className="font-medium text-sm">{p.name}</span><p className="text-xs text-muted-foreground">{p.code}</p></div>
+                <span className="text-sm font-semibold">$ {p.costPrice}</span>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Qty Dialog */}
+      <Dialog open={showQtyDialog} onOpenChange={setShowQtyDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{pendingProduct?.name}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><label className="text-xs text-muted-foreground mb-1 block">Quantity</label><Input type="number" value={pendingQty} onChange={e => setPendingQty(Number(e.target.value))} /></div>
+            <div><label className="text-xs text-muted-foreground mb-1 block">Unit Price</label><Input type="number" value={pendingPrice} onChange={e => setPendingPrice(Number(e.target.value))} /></div>
+            <button onClick={confirmAdd} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Add to Cart</button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+const Row = ({ label, value, className = "" }: { label: string; value: string; className?: string }) => (
+  <div className={`flex justify-between text-sm ${className}`}><span className="font-semibold">{label}</span><span>{value}</span></div>
+);
+
+export default AddPurchase;
