@@ -2,11 +2,12 @@ import { useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { store, Sale } from "@/lib/store";
-import { Search, Trash2, Eye, Edit, RotateCcw, MoreVertical } from "lucide-react";
+import { Search, Trash2, Eye, Edit, RotateCcw, MoreVertical, Printer } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import InvoiceModal from "@/components/InvoiceModal";
 
 const SalesList = () => {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ const SalesList = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewSale, setViewSale] = useState<Sale | null>(null);
   const [menuSaleId, setMenuSaleId] = useState<string | null>(null);
+  const [printSale, setPrintSale] = useState<Sale | null>(null);
 
   const filtered = sales.filter(s =>
     s.customerName.toLowerCase().includes(search.toLowerCase()) ||
@@ -91,6 +93,7 @@ const SalesList = () => {
                       {menuSaleId === s.id && (
                         <div className="absolute right-0 top-8 bg-card border border-border rounded-lg shadow-lg z-10 min-w-[140px]">
                           <button onClick={() => { setViewSale(s); setMenuSaleId(null); }} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent"><Eye size={14} /> View Invoice</button>
+                          <button onClick={() => { setPrintSale(s); setMenuSaleId(null); }} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent"><Printer size={14} /> Print</button>
                           {!s.returned && (
                             <>
                               <button onClick={() => { navigate(`/sale-return/${s.id}`); }} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-accent text-warning"><RotateCcw size={14} /> Sale Return</button>
@@ -137,6 +140,22 @@ const SalesList = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {printSale && (
+        <InvoiceModal
+          open={!!printSale}
+          onClose={() => setPrintSale(null)}
+          data={{
+            invoiceNo: printSale.invoiceNo, date: printSale.date,
+            customerName: printSale.customerName, phone: printSale.customerPhone,
+            items: printSale.items, subtotal: printSale.subtotal,
+            vat: printSale.vat, vatPercent: printSale.vatPercent,
+            discount: printSale.discount, total: printSale.total,
+            paid: printSale.paid, due: printSale.due, change: printSale.change,
+            type: "Sale",
+          }}
+        />
+      )}
 
       <button onClick={() => navigate("/add-sale")} className="fixed bottom-24 right-5 bg-primary text-primary-foreground px-5 py-3 rounded-full shadow-xl font-semibold text-sm">+ New Sale</button>
       <BottomNav />
