@@ -261,6 +261,16 @@ export interface VatRate {
   status: "Active" | "Inactive";
 }
 
+export interface BusinessProfile {
+  companyName: string;
+  address: string;
+  phone: string;
+  email: string;
+  logo?: string;
+  currency: string;
+  darkMode: boolean;
+}
+
 // Party type (legacy compat)
 export interface Party {
   id: string;
@@ -298,6 +308,7 @@ const KEYS = {
   payroll: "pos_payroll",
   vatRates: "pos_vat_rates",
   parties: "app_parties",
+  businessProfile: "pos_business_profile",
 };
 
 // ===== Default Data =====
@@ -512,6 +523,25 @@ export const store = {
   // Legacy
   getParties: () => load<Party>(KEYS.parties, []),
   saveParties: (p: Party[]) => save(KEYS.parties, p),
+
+  // Business Profile
+  getBusinessProfile: (): BusinessProfile => {
+    try {
+      const data = localStorage.getItem(KEYS.businessProfile);
+      return data ? JSON.parse(data) : {
+        companyName: "POS Pro",
+        address: "Your Business Address, City, Country",
+        phone: "+1234567890",
+        email: "info@pospro.com",
+        logo: "",
+        currency: "$",
+        darkMode: false,
+      };
+    } catch {
+      return { companyName: "POS Pro", address: "Your Business Address, City, Country", phone: "+1234567890", email: "info@pospro.com", logo: "", currency: "$", darkMode: false };
+    }
+  },
+  saveBusinessProfile: (p: BusinessProfile) => localStorage.setItem(KEYS.businessProfile, JSON.stringify(p)),
 
   // Utility
   getNextInvoiceNo: () => nextInvoice("S", KEYS.sales, defaultSales),
