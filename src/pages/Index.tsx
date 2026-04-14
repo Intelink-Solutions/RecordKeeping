@@ -71,9 +71,9 @@ const Index = () => {
 
       {/* Summary Card */}
       <div className="bg-primary px-5 pt-5 pb-8 rounded-b-3xl">
-        <div className="bg-black rounded-2xl p-4 border border-white/10">
+        <div className="bg-black dark:bg-background rounded-2xl p-4 border border-white/10 dark:border-border">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-white font-bold text-base">Today's Summary</h2>
+            <h2 className="text-primary font-bold text-base">Today's Summary</h2>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {[
@@ -83,8 +83,8 @@ const Index = () => {
               { label: "Expense", value: `$ ${totalExpense.toLocaleString()}` },
             ].map((item) => (
               <div key={item.label}>
-                <p className="text-white/70 text-xs font-medium">{item.label}</p>
-                <p className="text-white font-bold text-lg">{item.value}</p>
+                <p className="text-primary/70 text-xs font-medium">{item.label}</p>
+                <p className="text-primary font-bold text-lg">{item.value}</p>
               </div>
             ))}
           </div>
