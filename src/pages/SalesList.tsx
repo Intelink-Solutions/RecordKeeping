@@ -2,11 +2,12 @@ import { useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { store, Sale } from "@/lib/store";
-import { Search, Trash2, Eye, Edit, RotateCcw, MoreVertical } from "lucide-react";
+import { Search, Trash2, Eye, Edit, RotateCcw, MoreVertical, Printer } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import InvoiceModal from "@/components/InvoiceModal";
 
 const SalesList = () => {
   const navigate = useNavigate();
