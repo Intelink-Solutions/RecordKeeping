@@ -14,7 +14,7 @@ const MenuCard = ({ icon: Icon, label, path, color }: MenuCardProps) => {
   return (
     <button
       onClick={() => navigate(path)}
-      className="flex items-center gap-3 bg-card rounded-xl p-4 shadow-sm border border-border hover:shadow-md transition-shadow active:scale-[0.98]"
+      className="flex flex-col items-center gap-2 bg-card rounded-xl p-3 shadow-sm border border-border hover:shadow-md transition-shadow active:scale-[0.97]"
     >
       <div
         className="w-10 h-10 rounded-full flex items-center justify-center"
@@ -22,7 +22,7 @@ const MenuCard = ({ icon: Icon, label, path, color }: MenuCardProps) => {
       >
         <Icon size={20} />
       </div>
-      <span className="text-sm font-semibold text-foreground">{label}</span>
+      <span className="text-[11px] font-semibold text-foreground text-center leading-tight">{label}</span>
     </button>
   );
 };
