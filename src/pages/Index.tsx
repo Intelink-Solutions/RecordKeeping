@@ -6,6 +6,7 @@ import {
 import MenuCard from "@/components/MenuCard";
 import BottomNav from "@/components/BottomNav";
 import { store } from "@/lib/store";
+import logo from "@/assets/logo.png";
 
 const salesMenu = [
   { icon: ShoppingCart, label: "New Sale", path: "/add-sale", color: "#e74c3c" },
@@ -57,10 +58,7 @@ const Index = () => {
       {/* Header */}
       <div className="bg-primary px-5 pt-6 pb-8 rounded-b-3xl">
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-9 h-9 bg-primary-foreground/20 rounded-lg flex items-center justify-center">
-            <Package size={20} className="text-primary-foreground" />
-          </div>
-          <span className="text-primary-foreground text-lg font-bold">POS Pro</span>
+          <img src={logo} alt="Key Doctors Solutions" className="h-10 object-contain" />
         </div>
 
         <div className="bg-primary-foreground/15 backdrop-blur rounded-2xl p-4 border border-primary-foreground/20">
