@@ -17,6 +17,7 @@ const SalesList = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewSale, setViewSale] = useState<Sale | null>(null);
   const [menuSaleId, setMenuSaleId] = useState<string | null>(null);
+  const [printSale, setPrintSale] = useState<Sale | null>(null);
 
   const filtered = sales.filter(s =>
     s.customerName.toLowerCase().includes(search.toLowerCase()) ||
