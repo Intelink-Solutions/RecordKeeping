@@ -4,12 +4,14 @@ export interface Category {
   id: string;
   name: string;
   description?: string;
+  icon?: string;
 }
 
 export interface Brand {
   id: string;
   name: string;
   description?: string;
+  icon?: string;
 }
 
 export interface Unit {
@@ -268,7 +270,28 @@ export interface BusinessProfile {
   email: string;
   logo?: string;
   currency: string;
+  currencyCode?: string;
+  currencyPosition?: "before" | "after";
   darkMode: boolean;
+  isOnline: boolean;
+}
+
+export interface UserProfile {
+  fullName: string;
+  email: string;
+  phone: string;
+  role: string;
+  avatar?: string;
+  bio: string;
+}
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  createdAt: string;
+  type: "info" | "success" | "warning";
+  read: boolean;
 }
 
 // Party type (legacy compat)
@@ -309,6 +332,8 @@ const KEYS = {
   vatRates: "pos_vat_rates",
   parties: "app_parties",
   businessProfile: "pos_business_profile",
+  userProfile: "pos_user_profile",
+  notifications: "pos_notifications",
 };
 
 // ===== Default Data =====
@@ -526,22 +551,115 @@ export const store = {
 
   // Business Profile
   getBusinessProfile: (): BusinessProfile => {
+    const defaultBusinessProfile: BusinessProfile = {
+      companyName: "Key Doctors Solutions",
+      address: "Your Business Address, City, Country",
+      phone: "+1234567890",
+      email: "info@keydoctors.com",
+      logo: "",
+      currency: "$",
+      currencyCode: "USD",
+      currencyPosition: "before",
+      darkMode: false,
+      isOnline: true,
+    };
+
     try {
       const data = localStorage.getItem(KEYS.businessProfile);
-      return data ? JSON.parse(data) : {
-        companyName: "Key Doctors Solutions",
-        address: "Your Business Address, City, Country",
-        phone: "+1234567890",
-        email: "info@pospro.com",
-        logo: "",
-        currency: "$",
-        darkMode: false,
-      };
+      return data ? { ...defaultBusinessProfile, ...JSON.parse(data) } : defaultBusinessProfile;
     } catch {
-      return { companyName: "Key Doctors Solutions", address: "Your Business Address, City, Country", phone: "+1234567890", email: "info@keydoctors.com", logo: "", currency: "$", darkMode: false };
+      return defaultBusinessProfile;
     }
   },
   saveBusinessProfile: (p: BusinessProfile) => localStorage.setItem(KEYS.businessProfile, JSON.stringify(p)),
+  applyBackendCurrency: (currency?: { symbol?: string; code?: string; position?: string }) => {
+    if (!currency) return;
+    const profile = store.getBusinessProfile();
+    const next: BusinessProfile = {
+      ...profile,
+      currency: currency.symbol?.trim() || profile.currency,
+      currencyCode: currency.code?.trim() || profile.currencyCode,
+      currencyPosition: currency.position === "after" ? "after" : "before",
+    };
+    store.saveBusinessProfile(next);
+  },
+
+  applyBackendBusinessProfile: (data: {
+    company_name?: string; name?: string; address?: string;
+    phone?: string; email?: string; logo?: string;
+    currency?: { symbol?: string; code?: string; position?: string };
+  }) => {
+    if (!data) return;
+    const profile = store.getBusinessProfile();
+    const next: BusinessProfile = {
+      ...profile,
+      companyName: data.company_name || data.name || profile.companyName,
+      address: data.address || profile.address,
+      phone: data.phone || profile.phone,
+      email: data.email || profile.email,
+      logo: data.logo || profile.logo,
+    };
+    if (data.currency) {
+      next.currency = data.currency.symbol?.trim() || profile.currency;
+      next.currencyCode = data.currency.code?.trim() || profile.currencyCode;
+      next.currencyPosition = data.currency.position === "after" ? "after" : profile.currencyPosition;
+    }
+    store.saveBusinessProfile(next);
+  },
+
+  // User Profile
+  getUserProfile: (): UserProfile => {
+    try {
+      const data = localStorage.getItem(KEYS.userProfile);
+      return data
+        ? JSON.parse(data)
+        : {
+            fullName: "Admin User",
+            email: "admin@pospro.com",
+            phone: "+1234567890",
+            role: "Administrator",
+            avatar: "",
+            bio: "Manage your account details and profile photo.",
+          };
+    } catch {
+      return {
+        fullName: "Admin User",
+        email: "admin@pospro.com",
+        phone: "+1234567890",
+        role: "Administrator",
+        avatar: "",
+        bio: "Manage your account details and profile photo.",
+      };
+    }
+  },
+  saveUserProfile: (p: UserProfile) => localStorage.setItem(KEYS.userProfile, JSON.stringify(p)),
+  applyBackendUserProfile: (data?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    role?: string;
+    image?: string;
+    bio?: string;
+  }) => {
+    if (!data) return;
+    const profile = store.getUserProfile();
+    const next: UserProfile = {
+      ...profile,
+      fullName: data.name || profile.fullName,
+      email: data.email || profile.email,
+      phone: data.phone || profile.phone,
+      role: data.role || profile.role,
+      avatar: data.image || profile.avatar,
+      bio: data.bio || profile.bio,
+    };
+    store.saveUserProfile(next);
+  },
+
+  // Notifications
+  getNotifications: (): AppNotification[] => {
+    return load<AppNotification>(KEYS.notifications, []);
+  },
+  saveNotifications: (n: AppNotification[]) => save(KEYS.notifications, n),
 
   // Utility
   getNextInvoiceNo: () => nextInvoice("S", KEYS.sales, defaultSales),

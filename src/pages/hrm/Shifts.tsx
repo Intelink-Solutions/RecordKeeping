@@ -2,12 +2,20 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CrudListPage from "@/components/CrudListPage";
 import { store, Shift } from "@/lib/store";
+import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
 
-const Shifts = () => (
+const Shifts = () => {
+  const { items, saveItems } = useHrmLiveList<Shift>({
+    resource: "shifts",
+    localGet: () => store.getShifts(),
+    localSave: (next) => store.saveShifts(next),
+  });
+
+  return (
   <CrudListPage<Shift>
     title="Shift List"
-    items={store.getShifts()}
-    onSave={(items) => store.saveShifts(items)}
+    items={items}
+    onSave={saveItems}
     columns={[
       { key: "name", label: "Name" },
       { key: "startTime", label: "Start" },
@@ -42,5 +50,6 @@ const Shifts = () => (
     searchKey="name"
     displayName="Shift"
   />
-);
+  );
+};
 export default Shifts;

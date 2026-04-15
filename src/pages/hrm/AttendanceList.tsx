@@ -1,16 +1,27 @@
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CrudListPage from "@/components/CrudListPage";
-import { store, Attendance } from "@/lib/store";
+import { store, Attendance, Employee } from "@/lib/store";
+import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
 
 const AttendanceList = () => {
-  const employees = store.getEmployees();
+  const { items, saveItems } = useHrmLiveList<Attendance>({
+    resource: "attendances",
+    localGet: () => store.getAttendance(),
+    localSave: (next) => store.saveAttendance(next),
+  });
+
+  const { items: employees } = useHrmLiveList<Employee>({
+    resource: "employees",
+    localGet: () => store.getEmployees(),
+    localSave: (next) => store.saveEmployees(next),
+  });
 
   return (
     <CrudListPage<Attendance>
       title="Attendance List"
-      items={store.getAttendance()}
-      onSave={(items) => store.saveAttendance(items)}
+      items={items}
+      onSave={saveItems}
       columns={[
         { key: "employeeName", label: "Employee" },
         { key: "date", label: "Date" },

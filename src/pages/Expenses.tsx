@@ -7,6 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/currency";
+import { useDebounce } from "@/hooks/use-debounce";
 
 const Expenses = () => {
   const { toast } = useToast();
@@ -14,9 +16,10 @@ const Expenses = () => {
   const [expenses, setExpenses] = useState(store.getExpenses());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [form, setForm] = useState({ categoryId: "", amount: "", description: "", paymentType: "Cash" as Expense["paymentType"] });
 
-  const filtered = expenses.filter(e => e.description.toLowerCase().includes(search.toLowerCase()) || e.categoryName.toLowerCase().includes(search.toLowerCase()));
+  const filtered = expenses.filter(e => e.description.toLowerCase().includes(debouncedSearch.toLowerCase()) || e.categoryName.toLowerCase().includes(debouncedSearch.toLowerCase()));
   const total = filtered.reduce((s, e) => s + e.amount, 0);
 
   const add = () => {
@@ -39,13 +42,13 @@ const Expenses = () => {
       <div className="px-4 py-3 space-y-3">
         <div className="bg-destructive/10 rounded-xl p-4 text-center">
           <p className="text-sm text-muted-foreground">Total Expenses</p>
-          <p className="text-2xl font-bold text-destructive">$ {total.toLocaleString()}</p>
+          <p className="text-2xl font-bold text-destructive">{formatCurrency(total)}</p>
         </div>
         <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>
         {filtered.map(e => (
           <div key={e.id} className="bg-card rounded-xl p-4 border border-border flex items-center gap-3">
             <div className="flex-1"><p className="font-semibold text-sm">{e.categoryName}</p><p className="text-xs text-muted-foreground">{e.description}</p><p className="text-[11px] text-muted-foreground">{e.date} · {e.paymentType}</p></div>
-            <p className="font-bold text-sm text-destructive">$ {e.amount}</p>
+            <p className="font-bold text-sm text-destructive">{formatCurrency(e.amount)}</p>
             <button onClick={() => deleteItem(e.id)} className="p-1"><Trash2 size={14} className="text-destructive" /></button>
           </div>
         ))}

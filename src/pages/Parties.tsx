@@ -6,6 +6,7 @@ import { store, Party } from "@/lib/store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { formatCurrency } from "@/lib/currency";
 
 const typeColors: Record<string, string> = {
   Dealer: "#e74c3c",
@@ -43,7 +44,7 @@ const Parties = () => {
               <p className="text-xs font-semibold" style={{ color: typeColors[p.type] }}>{p.type}</p>
             </div>
             <div className="text-right">
-              {p.due > 0 && <p className="font-bold text-sm">$ {p.due.toLocaleString()}</p>}
+              {p.due > 0 && <p className="font-bold text-sm">{formatCurrency(p.due)}</p>}
               {p.due > 0 && <p className="text-xs text-warning font-medium">Due</p>}
             </div>
             <ChevronRight size={18} className="text-muted-foreground" />

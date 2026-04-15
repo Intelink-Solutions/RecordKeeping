@@ -1,6 +1,7 @@
 import ReportPage from "@/components/ReportPage";
 import { store } from "@/lib/store";
 import { useMemo } from "react";
+import { formatCurrency } from "@/lib/currency";
 
 const ProfitLossProduct = () => {
   const sales = store.getSales();
@@ -34,13 +35,13 @@ const ProfitLossProduct = () => {
       columns={[
         { key: "name", label: "Product" },
         { key: "sold", label: "Sold" },
-        { key: "revenue", label: "Revenue", render: (d) => <span>$ {d.revenue.toFixed(2)}</span> },
-        { key: "profit", label: "Profit", render: (d) => <span className="text-green-600 font-semibold">$ {d.profit.toFixed(2)}</span> },
-        { key: "loss", label: "Loss", render: (d) => d.loss > 0 ? <span className="text-red-600 font-semibold">$ {d.loss.toFixed(2)}</span> : <span>$ 0</span> },
+        { key: "revenue", label: "Revenue", render: (d) => <span>{formatCurrency(d.revenue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
+        { key: "profit", label: "Profit", render: (d) => <span className="text-green-600 font-semibold">{formatCurrency(d.profit, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
+        { key: "loss", label: "Loss", render: (d) => d.loss > 0 ? <span className="text-red-600 font-semibold">{formatCurrency(d.loss, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : <span>{formatCurrency(0)}</span> },
       ]}
       summaryCards={[
-        { label: "Total Profit", value: `$ ${totalProfit.toLocaleString()}`, color: "#27ae60" },
-        { label: "Total Loss", value: `$ ${totalLoss.toLocaleString()}`, color: "#e74c3c" },
+        { label: "Total Profit", value: formatCurrency(totalProfit), color: "#27ae60" },
+        { label: "Total Loss", value: formatCurrency(totalLoss), color: "#e74c3c" },
       ]}
       searchKeys={["name"]}
       showDateFilter={false}

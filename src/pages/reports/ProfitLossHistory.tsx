@@ -4,6 +4,7 @@ import BottomNav from "@/components/BottomNav";
 import { store } from "@/lib/store";
 import { Input } from "@/components/ui/input";
 import { Download, Printer, Search } from "lucide-react";
+import { formatCurrency } from "@/lib/currency";
 
 const ProfitLossHistory = () => {
   const [fromDate, setFromDate] = useState("");
@@ -29,15 +30,15 @@ const ProfitLossHistory = () => {
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-card rounded-xl p-3 shadow-sm border border-border text-center">
             <p className="text-[10px] text-muted-foreground">Gross Profit</p>
-            <p className="font-bold text-sm text-green-600">$ {grossProfit.toLocaleString()}</p>
+            <p className="font-bold text-sm text-green-600">{formatCurrency(grossProfit)}</p>
           </div>
           <div className="bg-card rounded-xl p-3 shadow-sm border border-border text-center">
             <p className="text-[10px] text-muted-foreground">Expenses</p>
-            <p className="font-bold text-sm text-red-600">$ {totalExpenseAmount.toLocaleString()}</p>
+            <p className="font-bold text-sm text-red-600">{formatCurrency(totalExpenseAmount)}</p>
           </div>
           <div className="bg-card rounded-xl p-3 shadow-sm border border-border text-center">
             <p className="text-[10px] text-muted-foreground">Net Profit</p>
-            <p className={`font-bold text-sm ${netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>$ {netProfit.toLocaleString()}</p>
+            <p className={`font-bold text-sm ${netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>{formatCurrency(netProfit)}</p>
           </div>
         </div>
 
@@ -49,24 +50,24 @@ const ProfitLossHistory = () => {
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="bg-green-50 px-4 py-2"><h4 className="text-xs font-bold text-green-700">Income</h4></div>
           <div className="px-4 py-2 flex justify-between text-sm border-b border-border">
-            <span>Sales Revenue</span><span className="font-semibold">$ {totalSalesRevenue.toLocaleString()}</span>
+            <span>Sales Revenue</span><span className="font-semibold">{formatCurrency(totalSalesRevenue)}</span>
           </div>
           <div className="px-4 py-2 flex justify-between text-sm border-b border-border">
-            <span>Other Income</span><span className="font-semibold">$ {totalIncomeAmount.toLocaleString()}</span>
+            <span>Other Income</span><span className="font-semibold">{formatCurrency(totalIncomeAmount)}</span>
           </div>
           <div className="px-4 py-2 flex justify-between text-sm font-bold bg-green-50/50">
-            <span>Total Income</span><span className="text-green-600">$ {grossProfit.toLocaleString()}</span>
+            <span>Total Income</span><span className="text-green-600">{formatCurrency(grossProfit)}</span>
           </div>
         </div>
 
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="bg-red-50 px-4 py-2"><h4 className="text-xs font-bold text-red-700">Expenses</h4></div>
           <div className="px-4 py-2 flex justify-between text-sm border-b border-border">
-            <span>Total Expenses</span><span className="font-semibold">$ {totalExpenseAmount.toLocaleString()}</span>
+            <span>Total Expenses</span><span className="font-semibold">{formatCurrency(totalExpenseAmount)}</span>
           </div>
           <div className="px-4 py-2 flex justify-between text-sm font-bold bg-red-50/50">
             <span>Net Profit/Loss</span>
-            <span className={netProfit >= 0 ? "text-green-600" : "text-red-600"}>$ {netProfit.toLocaleString()}</span>
+            <span className={netProfit >= 0 ? "text-green-600" : "text-red-600"}>{formatCurrency(netProfit)}</span>
           </div>
         </div>
       </div>

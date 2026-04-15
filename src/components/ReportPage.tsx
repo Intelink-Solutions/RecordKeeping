@@ -3,6 +3,7 @@ import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { Input } from "@/components/ui/input";
 import { Search, Download, Printer, ChevronDown } from "lucide-react";
+import { useDebounce } from "@/hooks/use-debounce";
 
 interface SummaryCard {
   label: string;
@@ -30,20 +31,21 @@ function ReportPage<T extends Record<string, any>>({
   title, data, columns, summaryCards, searchKeys = [], dateKey, showDateFilter = true,
 }: ReportPageProps<T>) {
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [perPage, setPerPage] = useState(25);
 
   const filtered = useMemo(() => {
     return data.filter((item) => {
-      const matchSearch = !search || searchKeys.some((k) =>
-        String(item[k]).toLowerCase().includes(search.toLowerCase())
+      const matchSearch = !debouncedSearch || searchKeys.some((k) =>
+        String(item[k]).toLowerCase().includes(debouncedSearch.toLowerCase())
       );
       const matchFrom = !fromDate || !dateKey || String(item[dateKey]) >= fromDate;
       const matchTo = !toDate || !dateKey || String(item[dateKey]) <= toDate;
       return matchSearch && matchFrom && matchTo;
     });
-  }, [data, search, fromDate, toDate, searchKeys, dateKey]);
+  }, [data, debouncedSearch, fromDate, toDate, searchKeys, dateKey]);
 
   const displayed = filtered.slice(0, perPage);
 

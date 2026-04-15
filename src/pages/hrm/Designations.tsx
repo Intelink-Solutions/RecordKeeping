@@ -2,12 +2,20 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CrudListPage from "@/components/CrudListPage";
 import { store, Designation } from "@/lib/store";
+import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
 
-const Designations = () => (
+const Designations = () => {
+  const { items, saveItems } = useHrmLiveList<Designation>({
+    resource: "designations",
+    localGet: () => store.getDesignations(),
+    localSave: (next) => store.saveDesignations(next),
+  });
+
+  return (
   <CrudListPage<Designation>
     title="Designation List"
-    items={store.getDesignations()}
-    onSave={(items) => store.saveDesignations(items)}
+    items={items}
+    onSave={saveItems}
     columns={[
       { key: "name", label: "Name" },
       { key: "description", label: "Description" },
@@ -30,5 +38,6 @@ const Designations = () => (
     searchKey="name"
     displayName="Designation"
   />
-);
+  );
+};
 export default Designations;

@@ -4,6 +4,7 @@ import BottomNav from "@/components/BottomNav";
 import { store } from "@/lib/store";
 import { Input } from "@/components/ui/input";
 import { Printer } from "lucide-react";
+import { formatCurrency } from "@/lib/currency";
 
 const LossProfit = () => {
   const [fromDate, setFromDate] = useState("2021-01-01");
@@ -31,12 +32,12 @@ const LossProfit = () => {
 
         <div className="bg-accent/50 border-2 border-primary/20 rounded-xl flex overflow-hidden">
           <div className="flex-1 p-4 text-center">
-            <p className="text-success font-bold text-xl">$ {totalProfit.toFixed(1)}</p>
+            <p className="text-success font-bold text-xl">{formatCurrency(totalProfit, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
             <p className="text-sm text-muted-foreground">Profit</p>
           </div>
           <div className="w-px bg-primary/20" />
           <div className="flex-1 p-4 text-center">
-            <p className="text-destructive font-bold text-xl">$ {totalLoss.toFixed(1)}</p>
+            <p className="text-destructive font-bold text-xl">{formatCurrency(totalLoss, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
             <p className="text-sm text-muted-foreground">Loss</p>
           </div>
         </div>
@@ -56,8 +57,8 @@ const LossProfit = () => {
               </div>
               <div className="flex items-center justify-between mt-2">
                 <div>
-                  <p className="text-xs text-muted-foreground">Total : $ {s.total}</p>
-                  <p className="text-xs font-semibold text-primary">Profit : $ {s.profit}</p>
+                  <p className="text-xs text-muted-foreground">Total : {formatCurrency(s.total)}</p>
+                  <p className="text-xs font-semibold text-primary">Profit : {formatCurrency(s.profit)}</p>
                 </div>
                 <button className="text-muted-foreground"><Printer size={18} /></button>
               </div>

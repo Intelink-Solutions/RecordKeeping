@@ -3,16 +3,19 @@ import BottomNav from "@/components/BottomNav";
 import { store } from "@/lib/store";
 import { Search } from "lucide-react";
 import { useState } from "react";
+import { useDebounce } from "@/hooks/use-debounce";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { formatCurrency } from "@/lib/currency";
 
 const StockList = () => {
   const products = store.getProducts();
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [view, setView] = useState("all");
 
   const filtered = products.filter(p => {
-    const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !debouncedSearch || p.name.toLowerCase().includes(debouncedSearch.toLowerCase());
     if (view === "low") return matchSearch && p.stock <= p.alertQty;
     if (view === "expired") return matchSearch && p.expiryDate && new Date(p.expiryDate) < new Date();
     return matchSearch;
@@ -32,7 +35,7 @@ const StockList = () => {
           </div>
           <div className="bg-card rounded-xl p-3 border border-border text-center">
             <p className="text-xs text-muted-foreground">Stock Value</p>
-            <p className="font-bold text-lg">$ {totalValue.toLocaleString()}</p>
+            <p className="font-bold text-lg">{formatCurrency(totalValue)}</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -49,7 +52,7 @@ const StockList = () => {
             </div>
             <div className="text-right">
               <p className={`font-bold text-sm ${p.stock <= p.alertQty ? "text-destructive" : ""}`}>{p.stock}</p>
-              <p className="text-[11px] text-muted-foreground">$ {(p.costPrice * p.stock).toLocaleString()}</p>
+              <p className="text-[11px] text-muted-foreground">{formatCurrency(p.costPrice * p.stock)}</p>
             </div>
           </div>
         ))}

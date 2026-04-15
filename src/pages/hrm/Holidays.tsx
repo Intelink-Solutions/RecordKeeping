@@ -1,12 +1,20 @@
 import { Input } from "@/components/ui/input";
 import CrudListPage from "@/components/CrudListPage";
 import { store, Holiday } from "@/lib/store";
+import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
 
-const Holidays = () => (
+const Holidays = () => {
+  const { items, saveItems } = useHrmLiveList<Holiday>({
+    resource: "holidays",
+    localGet: () => store.getHolidays(),
+    localSave: (next) => store.saveHolidays(next),
+  });
+
+  return (
   <CrudListPage<Holiday>
     title="Holiday List"
-    items={store.getHolidays()}
-    onSave={(items) => store.saveHolidays(items)}
+    items={items}
+    onSave={saveItems}
     columns={[
       { key: "name", label: "Name" },
       { key: "date", label: "Date" },
@@ -26,5 +34,6 @@ const Holidays = () => (
     searchKey="name"
     displayName="Holiday"
   />
-);
+  );
+};
 export default Holidays;

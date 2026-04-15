@@ -7,18 +7,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useAppContext } from "@/hooks/use-app-context";
+import { formatCurrency } from "@/lib/currency";
+import { useDebounce } from "@/hooks/use-debounce";
 
 const typeColors: Record<string, string> = { Dealer: "#e74c3c", Retailer: "#e67e22", Wholesaler: "#27ae60" };
 
 const Customers = () => {
   const { toast } = useToast();
+  const { canManageData, roleLabel } = useAppContext();
   const [customers, setCustomers] = useState(store.getCustomers());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
   const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", type: "Retailer" as Customer["type"], initialDue: "0" });
 
-  const filtered = customers.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search));
+  const filtered = customers.filter(c => c.name.toLowerCase().includes(debouncedSearch.toLowerCase()) || c.phone?.includes(debouncedSearch));
 
   const resetForm = () => setForm({ name: "", phone: "", email: "", address: "", type: "Retailer", initialDue: "0" });
 
@@ -48,6 +53,11 @@ const Customers = () => {
     <div className="min-h-screen bg-background pb-20">
       <PageHeader title="Customers" />
       <div className="px-4 py-3 space-y-3">
+        {!canManageData && (
+          <div className="text-xs rounded-lg border border-warning/30 bg-warning/10 text-warning px-3 py-2">
+            {roleLabel} access: view-only mode
+          </div>
+        )}
         <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>
         {filtered.map(c => (
           <div key={c.id} className="bg-card rounded-xl p-4 border border-border flex items-center gap-3">
@@ -58,19 +68,25 @@ const Customers = () => {
               {c.phone && <p className="text-[11px] text-muted-foreground">{c.phone}</p>}
             </div>
             <div className="text-right">
-              {c.due > 0 && <><p className="font-bold text-sm">$ {c.due.toLocaleString()}</p><p className="text-[10px] text-warning font-medium">Due</p></>}
+              {c.due > 0 && <><p className="font-bold text-sm">{formatCurrency(c.due)}</p><p className="text-[10px] text-warning font-medium">Due</p></>}
             </div>
             <div className="flex gap-1">
-              <button onClick={() => setEditCustomer(c)} className="p-1"><Edit size={14} className="text-muted-foreground" /></button>
-              <button onClick={() => deleteCustomer(c.id)} className="p-1"><Trash2 size={14} className="text-destructive" /></button>
+              {canManageData && (
+                <>
+                  <button onClick={() => setEditCustomer(c)} className="p-1"><Edit size={14} className="text-muted-foreground" /></button>
+                  <button onClick={() => deleteCustomer(c.id)} className="p-1"><Trash2 size={14} className="text-destructive" /></button>
+                </>
+              )}
             </div>
           </div>
         ))}
       </div>
 
-      <button onClick={() => { resetForm(); setShowAdd(true); }} className="fixed bottom-24 right-5 w-14 h-14 bg-primary text-primary-foreground rounded-full shadow-xl flex items-center justify-center"><Plus size={24} /></button>
+      {canManageData && (
+        <button onClick={() => { resetForm(); setShowAdd(true); }} className="fixed bottom-24 right-5 w-14 h-14 bg-primary text-primary-foreground rounded-full shadow-xl flex items-center justify-center"><Plus size={24} /></button>
+      )}
 
-      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+      <Dialog open={canManageData && showAdd} onOpenChange={setShowAdd}>
         <DialogContent>
           <DialogHeader><DialogTitle>Add Customer</DialogTitle></DialogHeader>
           <div className="space-y-3">
@@ -85,7 +101,7 @@ const Customers = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editCustomer} onOpenChange={() => setEditCustomer(null)}>
+      <Dialog open={canManageData && !!editCustomer} onOpenChange={() => setEditCustomer(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Edit Customer</DialogTitle></DialogHeader>
           {editCustomer && (

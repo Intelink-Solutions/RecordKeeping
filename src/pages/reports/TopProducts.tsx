@@ -1,6 +1,7 @@
 import ReportPage from "@/components/ReportPage";
 import { store } from "@/lib/store";
 import { useMemo } from "react";
+import { formatCurrency } from "@/lib/currency";
 
 const TopProducts = () => {
   const sales = store.getSales();
@@ -23,7 +24,7 @@ const TopProducts = () => {
       columns={[
         { key: "name", label: "Product" },
         { key: "totalQty", label: "Qty Sold" },
-        { key: "totalRevenue", label: "Revenue", render: (d) => <span className="font-semibold">$ {d.totalRevenue.toFixed(2)}</span> },
+        { key: "totalRevenue", label: "Revenue", render: (d) => <span className="font-semibold">{formatCurrency(d.totalRevenue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
       ]}
       searchKeys={["name"]}
       showDateFilter={false}

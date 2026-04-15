@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Plus, Search, Trash2 } from "lucide-react";
+import { useDebounce } from "@/hooks/use-debounce";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { store } from "@/lib/store";
@@ -14,8 +15,9 @@ const IncomeCategories = () => {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
 
-  const filtered = categories.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = categories.filter(c => c.name.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
   const add = () => {
     if (!name.trim()) return;

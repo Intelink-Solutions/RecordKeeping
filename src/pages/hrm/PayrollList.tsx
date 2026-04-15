@@ -1,16 +1,28 @@
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CrudListPage from "@/components/CrudListPage";
-import { store, Payroll } from "@/lib/store";
+import { store, Payroll, Employee } from "@/lib/store";
+import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
+import { formatCurrency } from "@/lib/currency";
 
 const PayrollList = () => {
-  const employees = store.getEmployees();
+  const { items, saveItems } = useHrmLiveList<Payroll>({
+    resource: "payrolls",
+    localGet: () => store.getPayroll(),
+    localSave: (next) => store.savePayroll(next),
+  });
+
+  const { items: employees } = useHrmLiveList<Employee>({
+    resource: "employees",
+    localGet: () => store.getEmployees(),
+    localSave: (next) => store.saveEmployees(next),
+  });
 
   return (
     <CrudListPage<Payroll>
       title="Payroll List"
-      items={store.getPayroll()}
-      onSave={(items) => store.savePayroll(items)}
+      items={items}
+      onSave={saveItems}
       columns={[
         { key: "employeeName", label: "Employee" },
         { key: "month", label: "Month" },
@@ -55,7 +67,7 @@ const PayrollList = () => {
           }} />
           <div className="bg-muted rounded-lg p-3 text-center">
             <p className="text-xs text-muted-foreground">Net Salary</p>
-            <p className="font-bold text-lg text-primary">$ {(item.netSalary || 0).toFixed(2)}</p>
+            <p className="font-bold text-lg text-primary">{formatCurrency(item.netSalary || 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
           <Select value={item.status || "Unpaid"} onValueChange={(v) => onChange("status", v)}>
             <SelectTrigger><SelectValue /></SelectTrigger>

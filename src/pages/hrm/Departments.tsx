@@ -2,12 +2,20 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CrudListPage from "@/components/CrudListPage";
 import { store, Department } from "@/lib/store";
+import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
 
-const Departments = () => (
+const Departments = () => {
+  const { items, saveItems } = useHrmLiveList<Department>({
+    resource: "departments",
+    localGet: () => store.getDepartments(),
+    localSave: (next) => store.saveDepartments(next),
+  });
+
+  return (
   <CrudListPage<Department>
     title="Department List"
-    items={store.getDepartments()}
-    onSave={(items) => store.saveDepartments(items)}
+    items={items}
+    onSave={saveItems}
     columns={[
       { key: "name", label: "Name" },
       { key: "description", label: "Description" },
@@ -30,5 +38,6 @@ const Departments = () => (
     searchKey="name"
     displayName="Department"
   />
-);
+  );
+};
 export default Departments;

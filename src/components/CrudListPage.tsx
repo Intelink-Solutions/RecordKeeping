@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search, Plus, MoreVertical, Edit2, Trash2, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useDebounce } from "@/hooks/use-debounce";
 
 interface CrudListPageProps<T extends { id: string }> {
   title: string;
@@ -23,14 +24,19 @@ function CrudListPage<T extends { id: string }>({
   const { toast } = useToast();
   const [items, setItems] = useState(initialItems);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [showForm, setShowForm] = useState(false);
   const [editItem, setEditItem] = useState<Partial<T> | null>(null);
   const [showView, setShowView] = useState<T | null>(null);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
+  useEffect(() => {
+    setItems(initialItems);
+  }, [initialItems]);
+
   const filtered = items.filter((item) =>
-    String(item[searchKey]).toLowerCase().includes(search.toLowerCase())
+    String(item[searchKey]).toLowerCase().includes(debouncedSearch.toLowerCase())
   );
 
   const openAdd = () => { setEditItem(createDefaults()); setShowForm(true); };

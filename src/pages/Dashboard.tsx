@@ -2,15 +2,74 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend
 import { Package, FileText, DollarSign, Wallet, Users, BarChart3, TrendingUp, TrendingDown } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { store } from "@/lib/store";
-import { useMemo } from "react";
+import { apiGetDashboard, apiGetSummary } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/currency";
+import { useSecurityPrefs } from "@/hooks/use-security-prefs";
+import { maskSensitiveValue } from "@/lib/security";
 
 const Dashboard = () => {
+  const { toast } = useToast();
+  const security = useSecurityPrefs();
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveSummary, setLiveSummary] = useState<{ sales: number; income: number; expense: number; purchase: number } | null>(null);
+  const [liveDashboard, setLiveDashboard] = useState<{
+    total_items: number;
+    total_due: number;
+    total_profit: number;
+    total_loss: number;
+    stock_value: number;
+    sales: Array<{ date: string; amount: number }>;
+    purchases: Array<{ date: string; amount: number }>;
+  } | null>(null);
+
   const products = store.getProducts();
   const sales = store.getSales();
   const purchases = store.getPurchases();
   const customers = store.getCustomers();
   const suppliers = store.getSuppliers();
   const expenses = store.getExpenses();
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadLiveDashboard = async () => {
+      const isOnline = store.getBusinessProfile().isOnline;
+      if (!isOnline) return;
+
+      setLiveLoading(true);
+      try {
+        const [summary, dashboard] = await Promise.all([
+          apiGetSummary(),
+          apiGetDashboard("current_month"),
+        ]);
+
+        if (!mounted) return;
+        setLiveSummary(summary);
+        setLiveDashboard(dashboard);
+      } catch (error) {
+        if (!mounted) return;
+        setLiveSummary(null);
+        setLiveDashboard(null);
+
+        const msg = error instanceof Error ? error.message : "Live dashboard unavailable.";
+        toast({
+          title: "Live Dashboard Fallback",
+          description: `${msg} Showing local data.`,
+          variant: "destructive",
+        });
+      } finally {
+        if (mounted) setLiveLoading(false);
+      }
+    };
+
+    loadLiveDashboard();
+
+    return () => {
+      mounted = false;
+    };
+  }, [toast]);
 
   const totalIncome = sales.reduce((s, sale) => s + sale.paid, 0);
   const totalExpense = expenses.reduce((s, e) => s + e.amount, 0) + purchases.reduce((s, p) => s + p.paid, 0);
@@ -21,7 +80,7 @@ const Dashboard = () => {
   const totalLoss = sales.reduce((s, sale) => s + Math.abs(Math.min(0, sale.profit)), 0);
   const lowStock = products.filter(p => p.stock <= p.alertQty).length;
 
-  const chartData = useMemo(() => {
+  const localChartData = useMemo(() => {
     const days: Record<string, { sales: number; purchase: number }> = {};
     sales.forEach(s => {
       const d = s.date.slice(-2);
@@ -36,20 +95,43 @@ const Dashboard = () => {
     return Object.entries(days).sort(([a], [b]) => a.localeCompare(b)).map(([name, data]) => ({ name, ...data }));
   }, [sales, purchases]);
 
+  const liveChartData = useMemo(() => {
+    if (!liveDashboard) return [];
+
+    return liveDashboard.sales.map((row, idx) => ({
+      name: row.date,
+      sales: row.amount,
+      purchase: liveDashboard.purchases[idx]?.amount ?? 0,
+    }));
+  }, [liveDashboard]);
+
+  const chartData = liveChartData.length ? liveChartData : localChartData;
+
+  const isOnline = store.getBusinessProfile().isOnline;
+  const totalProducts = liveDashboard?.total_items ?? products.length;
+  const totalSalesCount = liveSummary ? Math.round(liveSummary.sales) : sales.length;
+  const customerDueValue = liveDashboard?.total_due ?? customerDue;
+  const totalIncomeValue = liveSummary?.income ?? totalIncome;
+  const totalExpenseValue = liveSummary?.expense ?? totalExpense;
+  const totalProfitValue = liveDashboard?.total_profit ?? totalProfit;
+  const totalLossValue = liveDashboard?.total_loss ?? totalLoss;
+  const stockValueValue = liveDashboard?.stock_value ?? stockValue;
+
   const stats = [
-    { icon: Package, label: "Total Products", value: products.length, color: "#27ae60" },
-    { icon: FileText, label: "Total Sales", value: sales.length, color: "#2980b9" },
+    { icon: Package, label: "Total Products", value: totalProducts, color: "#27ae60" },
+    { icon: FileText, label: "Total Sales", value: totalSalesCount, color: "#2980b9" },
     { icon: Users, label: "Customers", value: customers.length, color: "#e67e22" },
     { icon: BarChart3, label: "Low Stock", value: lowStock, color: "#e74c3c" },
   ];
 
   const overview = [
-    { icon: DollarSign, label: "Total Income", value: `$ ${totalIncome.toLocaleString()}`, color: "#27ae60" },
-    { icon: Wallet, label: "Total Expense", value: `$ ${totalExpense.toLocaleString()}`, color: "#e74c3c" },
-    { icon: Users, label: "Customer Due", value: `$ ${customerDue.toLocaleString()}`, color: "#2980b9" },
-    { icon: TrendingDown, label: "Supplier Due", value: `$ ${supplierDue.toLocaleString()}`, color: "#8e44ad" },
-    { icon: TrendingUp, label: "Total Profit", value: `$ ${totalProfit.toLocaleString()}`, color: "#27ae60" },
-    { icon: Package, label: "Stock Value", value: `$ ${stockValue.toLocaleString()}`, color: "#e67e22" },
+    { icon: DollarSign, label: "Total Income", value: maskSensitiveValue(formatCurrency(totalIncomeValue), security.hideAmounts), color: "#27ae60" },
+    { icon: Wallet, label: "Total Expense", value: maskSensitiveValue(formatCurrency(totalExpenseValue), security.hideAmounts), color: "#e74c3c" },
+    { icon: Users, label: "Customer Due", value: maskSensitiveValue(formatCurrency(customerDueValue), security.hideAmounts), color: "#2980b9" },
+    { icon: TrendingDown, label: "Supplier Due", value: maskSensitiveValue(formatCurrency(supplierDue), security.hideAmounts), color: "#8e44ad" },
+    { icon: TrendingUp, label: "Total Profit", value: maskSensitiveValue(formatCurrency(totalProfitValue), security.hideAmounts), color: "#27ae60" },
+    { icon: Package, label: "Stock Value", value: maskSensitiveValue(formatCurrency(stockValueValue), security.hideAmounts), color: "#e67e22" },
+    { icon: TrendingDown, label: "Total Loss", value: maskSensitiveValue(formatCurrency(totalLossValue), security.hideAmounts), color: "#e74c3c" },
   ];
 
   return (

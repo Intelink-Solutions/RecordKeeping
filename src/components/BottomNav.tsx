@@ -1,21 +1,24 @@
 import { Home, LayoutGrid, FileText, Settings } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useAppContext } from "@/hooks/use-app-context";
 
 const tabs = [
-  { icon: Home, label: "Home", path: "/" },
+  { icon: Home, label: "Home", path: "/home" },
   { icon: LayoutGrid, label: "Dashboard", path: "/dashboard" },
   { icon: FileText, label: "Reports", path: "/reports" },
   { icon: Settings, label: "Setting", path: "/settings" },
 ];
 
 const BottomNav = () => {
+  const { canAccessSettings } = useAppContext();
   const location = useLocation();
   const navigate = useNavigate();
+  const visibleTabs = canAccessSettings ? tabs : tabs.filter((tab) => tab.path !== "/settings");
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-card border-t border-border safe-bottom z-50">
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
-        {tabs.map((tab) => {
+        {visibleTabs.map((tab) => {
           const active = location.pathname === tab.path;
           return (
             <button

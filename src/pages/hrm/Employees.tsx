@@ -1,18 +1,39 @@
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CrudListPage from "@/components/CrudListPage";
-import { store, Employee } from "@/lib/store";
+import { store, Employee, Department, Designation, Shift } from "@/lib/store";
+import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
 
 const Employees = () => {
-  const departments = store.getDepartments();
-  const designations = store.getDesignations();
-  const shifts = store.getShifts();
+  const { items, saveItems } = useHrmLiveList<Employee>({
+    resource: "employees",
+    localGet: () => store.getEmployees(),
+    localSave: (next) => store.saveEmployees(next),
+  });
+
+  const { items: departments } = useHrmLiveList<Department>({
+    resource: "departments",
+    localGet: () => store.getDepartments(),
+    localSave: (next) => store.saveDepartments(next),
+  });
+
+  const { items: designations } = useHrmLiveList<Designation>({
+    resource: "designations",
+    localGet: () => store.getDesignations(),
+    localSave: (next) => store.saveDesignations(next),
+  });
+
+  const { items: shifts } = useHrmLiveList<Shift>({
+    resource: "shifts",
+    localGet: () => store.getShifts(),
+    localSave: (next) => store.saveShifts(next),
+  });
 
   return (
     <CrudListPage<Employee>
       title="Employee List"
-      items={store.getEmployees()}
-      onSave={(items) => store.saveEmployees(items)}
+      items={items}
+      onSave={saveItems}
       columns={[
         { key: "employeeId", label: "ID" },
         { key: "name", label: "Name" },
@@ -32,19 +53,19 @@ const Employees = () => {
           <Select value={item.departmentId || ""} onValueChange={(v) => onChange("departmentId", v)}>
             <SelectTrigger><SelectValue placeholder="Select Department" /></SelectTrigger>
             <SelectContent>
-              {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+              {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={item.designationId || ""} onValueChange={(v) => onChange("designationId", v)}>
             <SelectTrigger><SelectValue placeholder="Select Designation" /></SelectTrigger>
             <SelectContent>
-              {designations.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+              {designations.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={item.shiftId || ""} onValueChange={(v) => onChange("shiftId", v)}>
             <SelectTrigger><SelectValue placeholder="Select Shift" /></SelectTrigger>
             <SelectContent>
-              {shifts.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+              {shifts.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <div>

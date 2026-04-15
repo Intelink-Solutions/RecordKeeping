@@ -7,10 +7,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { useAppContext } from "@/hooks/use-app-context";
+import { formatCurrency } from "@/lib/currency";
 
 const AddPurchase = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { canManageData, roleLabel } = useAppContext();
   const products = store.getProducts();
   const suppliers = store.getSuppliers();
   const categories = store.getCategories();
@@ -70,6 +73,11 @@ const AddPurchase = () => {
   const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
 
   const submit = () => {
+    if (!canManageData) {
+      toast({ title: "Permission required", description: "You have view-only access", variant: "destructive" });
+      return;
+    }
+
     if (!supplierId || items.length === 0) {
       toast({ title: "Please select supplier and add items", variant: "destructive" });
       return;
@@ -105,6 +113,11 @@ const AddPurchase = () => {
     <div className="min-h-screen bg-background pb-6">
       <PageHeader title="Create Purchase" />
       <div className="px-4 py-4 space-y-4">
+        {!canManageData && (
+          <div className="text-xs rounded-lg border border-warning/30 bg-warning/10 text-warning px-3 py-2">
+            {roleLabel} access: view-only mode
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div><label className="text-xs text-muted-foreground mb-1 block">Invoice No.</label><Input value={invoiceNo} readOnly className="bg-muted" /></div>
           <div><label className="text-xs text-muted-foreground mb-1 block">Date</label><Input type="date" value={date} readOnly className="bg-muted" /></div>
@@ -125,7 +138,7 @@ const AddPurchase = () => {
               <div key={item.productId} className="px-4 py-3 flex items-center border-b border-border last:border-0">
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm truncate">{item.name}</p>
-                  <p className="text-xs text-muted-foreground">{item.quantity} × ${item.unitPrice} = ${(item.quantity * item.unitPrice).toFixed(2)}</p>
+                  <p className="text-xs text-muted-foreground">{item.quantity} × {formatCurrency(item.unitPrice)} = {formatCurrency(item.quantity * item.unitPrice, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button onClick={() => updateQty(idx, -1)} className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center"><Minus size={14} /></button>
@@ -138,25 +151,25 @@ const AddPurchase = () => {
           </div>
         )}
 
-        <button onClick={() => setShowPicker(true)} className="w-full py-3 bg-accent text-primary font-semibold rounded-xl border-2 border-dashed border-primary/30">+ Add Products</button>
+        {canManageData && <button onClick={() => setShowPicker(true)} className="w-full py-3 bg-accent text-primary font-semibold rounded-xl border-2 border-dashed border-primary/30">+ Add Products</button>}
 
         <div className="bg-card rounded-xl p-4 border border-border space-y-2.5">
-          <Row label="Sub Total" value={`$ ${subtotal.toFixed(2)}`} />
+          <Row label="Sub Total" value={formatCurrency(subtotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} />
           <div className="flex justify-between items-center text-sm"><span className="font-semibold">Discount</span><Input type="number" value={discount} onChange={e => setDiscount(Number(e.target.value))} className="w-20 h-8 text-right text-sm" /></div>
-          <div className="flex justify-between text-sm font-bold border-t border-border pt-2"><span>Total</span><span className="text-primary">$ {total.toFixed(2)}</span></div>
+          <div className="flex justify-between text-sm font-bold border-t border-border pt-2"><span>Total</span><span className="text-primary">{formatCurrency(total, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
           <div className="flex justify-between items-center text-sm"><span className="font-semibold">Paid</span><Input type="number" value={receivedAmount} onChange={e => setReceivedAmount(Number(e.target.value))} className="w-24 h-8 text-right text-sm" /></div>
-          {changeAmount > 0 && <Row label="Change" value={`$ ${changeAmount.toFixed(2)}`} className="text-success" />}
-          {dueAmount > 0 && <Row label="Due" value={`$ ${dueAmount.toFixed(2)}`} className="text-destructive" />}
+          {changeAmount > 0 && <Row label="Change" value={formatCurrency(changeAmount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-success" />}
+          {dueAmount > 0 && <Row label="Due" value={formatCurrency(dueAmount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-destructive" />}
         </div>
 
         <div className="flex gap-3">
           <button onClick={() => navigate(-1)} className="flex-1 bg-muted text-muted-foreground font-bold py-3.5 rounded-xl">Cancel</button>
-          <button onClick={submit} className="flex-1 bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg">Save</button>
+          <button onClick={submit} disabled={!canManageData} className="flex-1 bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-60">Save</button>
         </div>
       </div>
 
       {/* Product Picker */}
-      <Dialog open={showPicker} onOpenChange={setShowPicker}>
+      <Dialog open={canManageData && showPicker} onOpenChange={setShowPicker}>
         <DialogContent className="max-h-[85vh] flex flex-col">
           <DialogHeader><DialogTitle>Select Product</DialogTitle></DialogHeader>
           <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-9" /></div>
@@ -168,7 +181,7 @@ const AddPurchase = () => {
             {filteredProducts.map(p => (
               <button key={p.id} onClick={() => selectProduct(p)} className="w-full flex items-center justify-between p-3 hover:bg-accent rounded-lg">
                 <div className="text-left"><span className="font-medium text-sm">{p.name}</span><p className="text-xs text-muted-foreground">{p.code}</p></div>
-                <span className="text-sm font-semibold">$ {p.costPrice}</span>
+                <span className="text-sm font-semibold">{formatCurrency(p.costPrice)}</span>
               </button>
             ))}
           </div>
@@ -176,7 +189,7 @@ const AddPurchase = () => {
       </Dialog>
 
       {/* Qty Dialog */}
-      <Dialog open={showQtyDialog} onOpenChange={setShowQtyDialog}>
+      <Dialog open={canManageData && showQtyDialog} onOpenChange={setShowQtyDialog}>
         <DialogContent>
           <DialogHeader><DialogTitle>{pendingProduct?.name}</DialogTitle></DialogHeader>
           <div className="space-y-3">

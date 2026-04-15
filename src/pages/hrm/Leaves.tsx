@@ -2,17 +2,33 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CrudListPage from "@/components/CrudListPage";
-import { store, Leave } from "@/lib/store";
+import { store, Leave, Employee, LeaveType } from "@/lib/store";
+import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
 
 const Leaves = () => {
-  const employees = store.getEmployees();
-  const leaveTypes = store.getLeaveTypes();
+  const { items, saveItems } = useHrmLiveList<Leave>({
+    resource: "leaves",
+    localGet: () => store.getLeaves(),
+    localSave: (next) => store.saveLeaves(next),
+  });
+
+  const { items: employees } = useHrmLiveList<Employee>({
+    resource: "employees",
+    localGet: () => store.getEmployees(),
+    localSave: (next) => store.saveEmployees(next),
+  });
+
+  const { items: leaveTypes } = useHrmLiveList<LeaveType>({
+    resource: "leave-types",
+    localGet: () => store.getLeaveTypes(),
+    localSave: (next) => store.saveLeaveTypes(next),
+  });
 
   return (
     <CrudListPage<Leave>
       title="Leave List"
-      items={store.getLeaves()}
-      onSave={(items) => store.saveLeaves(items)}
+      items={items}
+      onSave={saveItems}
       columns={[
         { key: "employeeName", label: "Employee" },
         { key: "leaveTypeName", label: "Leave Type" },

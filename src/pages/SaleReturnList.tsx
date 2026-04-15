@@ -1,16 +1,19 @@
 import { useState } from "react";
+import { useDebounce } from "@/hooks/use-debounce";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { store } from "@/lib/store";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { formatCurrency } from "@/lib/currency";
 
 const SaleReturnList = () => {
   const returns = store.getSaleReturns();
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
 
   const filtered = returns.filter(r =>
-    r.customerName.toLowerCase().includes(search.toLowerCase()) || r.invoiceNo.toLowerCase().includes(search.toLowerCase())
+    r.customerName.toLowerCase().includes(debouncedSearch.toLowerCase()) || r.invoiceNo.toLowerCase().includes(debouncedSearch.toLowerCase())
   );
 
   return (
@@ -31,7 +34,7 @@ const SaleReturnList = () => {
               <p className="text-xs text-muted-foreground">{r.date}</p>
               <div className="mt-2 flex justify-between">
                 <p className="text-xs text-muted-foreground">{r.items.length} item(s) returned</p>
-                <p className="font-bold text-sm text-destructive">$ {r.total.toFixed(2)}</p>
+                <p className="font-bold text-sm text-destructive">{formatCurrency(r.total, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               </div>
             </div>
           ))}

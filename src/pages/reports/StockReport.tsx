@@ -1,5 +1,6 @@
 import ReportPage from "@/components/ReportPage";
 import { store } from "@/lib/store";
+import { formatCurrency } from "@/lib/currency";
 
 const StockReport = () => {
   const products = store.getProducts();
@@ -16,12 +17,12 @@ const StockReport = () => {
         { key: "stock", label: "Qty", render: (p) => (
           <span className={`font-semibold ${p.stock <= p.alertQty ? "text-destructive" : ""}`}>{p.stock}</span>
         )},
-        { key: "costPrice", label: "Cost", render: (p) => <span>$ {p.costPrice}</span> },
-        { key: "retailPrice", label: "Retail", render: (p) => <span>$ {p.retailPrice}</span> },
+        { key: "costPrice", label: "Cost", render: (p) => <span>{formatCurrency(p.costPrice)}</span> },
+        { key: "retailPrice", label: "Retail", render: (p) => <span>{formatCurrency(p.retailPrice)}</span> },
       ]}
       summaryCards={[
         { label: "Total Quantity", value: totalQty.toLocaleString(), color: "#2980b9" },
-        { label: "Stock Value", value: `$ ${totalValue.toLocaleString()}`, color: "#27ae60" },
+        { label: "Stock Value", value: formatCurrency(totalValue), color: "#27ae60" },
       ]}
       searchKeys={["name", "code"]}
       showDateFilter={false}

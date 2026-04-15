@@ -1,5 +1,6 @@
 import ReportPage from "@/components/ReportPage";
 import { store } from "@/lib/store";
+import { formatCurrency } from "@/lib/currency";
 
 const PurchaseTaxReport = () => {
   const purchases = store.getPurchases();
@@ -14,12 +15,12 @@ const PurchaseTaxReport = () => {
         { key: "invoiceNo", label: "Invoice" },
         { key: "date", label: "Date" },
         { key: "supplierName", label: "Supplier" },
-        { key: "subtotal", label: "Subtotal", render: (p) => <span>$ {p.subtotal.toFixed(2)}</span> },
+        { key: "subtotal", label: "Subtotal", render: (p) => <span>{formatCurrency(p.subtotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
         { key: "taxPercent", label: "Tax %" },
-        { key: "taxAmount", label: "Tax", render: (p) => <span>$ {p.taxAmount.toFixed(2)}</span> },
-        { key: "total", label: "Total", render: (p) => <span className="font-semibold">$ {p.total.toFixed(2)}</span> },
+        { key: "taxAmount", label: "Tax", render: (p) => <span>{formatCurrency(p.taxAmount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
+        { key: "total", label: "Total", render: (p) => <span className="font-semibold">{formatCurrency(p.total, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
       ]}
-      summaryCards={[{ label: "Total Tax", value: "$ 0", color: "#2980b9" }]}
+      summaryCards={[{ label: "Total Tax", value: formatCurrency(0), color: "#2980b9" }]}
       searchKeys={["invoiceNo", "supplierName"]}
       dateKey="date"
     />

@@ -7,6 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/currency";
+import { useDebounce } from "@/hooks/use-debounce";
 
 const IncomePage = () => {
   const { toast } = useToast();
@@ -14,9 +16,10 @@ const IncomePage = () => {
   const [incomes, setIncomes] = useState(store.getIncomes());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [form, setForm] = useState({ categoryId: "", amount: "", description: "", paymentType: "Cash" as Income["paymentType"] });
 
-  const filtered = incomes.filter(i => i.description.toLowerCase().includes(search.toLowerCase()) || i.categoryName.toLowerCase().includes(search.toLowerCase()));
+  const filtered = incomes.filter(i => i.description.toLowerCase().includes(debouncedSearch.toLowerCase()) || i.categoryName.toLowerCase().includes(debouncedSearch.toLowerCase()));
   const total = filtered.reduce((s, i) => s + i.amount, 0);
 
   const add = () => {
@@ -39,13 +42,13 @@ const IncomePage = () => {
       <div className="px-4 py-3 space-y-3">
         <div className="bg-success/10 rounded-xl p-4 text-center">
           <p className="text-sm text-muted-foreground">Total Income</p>
-          <p className="text-2xl font-bold text-success">$ {total.toLocaleString()}</p>
+          <p className="text-2xl font-bold text-success">{formatCurrency(total)}</p>
         </div>
         <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>
         {filtered.map(i => (
           <div key={i.id} className="bg-card rounded-xl p-4 border border-border flex items-center gap-3">
             <div className="flex-1"><p className="font-semibold text-sm">{i.categoryName}</p><p className="text-xs text-muted-foreground">{i.description}</p><p className="text-[11px] text-muted-foreground">{i.date} · {i.paymentType}</p></div>
-            <p className="font-bold text-sm text-success">$ {i.amount}</p>
+            <p className="font-bold text-sm text-success">{formatCurrency(i.amount)}</p>
             <button onClick={() => deleteItem(i.id)} className="p-1"><Trash2 size={14} className="text-destructive" /></button>
           </div>
         ))}

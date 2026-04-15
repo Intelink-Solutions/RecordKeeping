@@ -3,10 +3,15 @@ import {
   FileText, TrendingUp, Wallet, Receipt, DollarSign, CreditCard,
   UserCheck, Truck, Tags, BookOpen, Landmark, Users2, Bell, UserCircle
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import MenuCard from "@/components/MenuCard";
 import BottomNav from "@/components/BottomNav";
 import { store } from "@/lib/store";
+import SyncStatusBadge from "@/components/SyncStatusBadge";
 import logo from "@/assets/logo.png";
+import { formatCurrency } from "@/lib/currency";
+import { useSecurityPrefs } from "@/hooks/use-security-prefs";
+import { maskSensitiveValue } from "@/lib/security";
 
 const salesMenu = [
   { icon: ShoppingCart, label: "New Sale", path: "/add-sale", color: "#e74c3c" },
@@ -45,9 +50,12 @@ const hrmMenu = [
 ];
 
 const Index = () => {
+  const navigate = useNavigate();
+  const security = useSecurityPrefs();
   const sales = store.getSales();
   const purchases = store.getPurchases();
   const expenses = store.getExpenses();
+  const unreadNotifications = store.getNotifications().filter((item) => !item.read).length;
   const totalSales = sales.reduce((s, sale) => s + sale.total, 0);
   const totalPurchases = purchases.reduce((s, p) => s + p.total, 0);
   const totalProfit = sales.reduce((s, sale) => s + sale.profit, 0);
@@ -59,11 +67,12 @@ const Index = () => {
       <div className="bg-white px-5 py-3 shadow-sm flex items-center justify-between">
         <img src={logo} alt="Key Doctors Solutions" className="h-10 object-contain" />
         <div className="flex items-center gap-3">
-          <button className="relative p-2 rounded-full hover:bg-muted transition-colors">
+          <SyncStatusBadge />
+          <button onClick={() => navigate("/notifications")} className="relative p-2 rounded-full hover:bg-muted transition-colors" aria-label="Open notifications">
             <Bell className="h-5 w-5 text-foreground" />
-            <span className="absolute top-1 right-1 h-2 w-2 bg-destructive rounded-full" />
+            {unreadNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-destructive rounded-full" />}
           </button>
-          <button className="p-1 rounded-full hover:bg-muted transition-colors">
+          <button onClick={() => navigate("/profile")} className="p-1 rounded-full hover:bg-muted transition-colors" aria-label="Open profile">
             <UserCircle className="h-8 w-8 text-foreground" />
           </button>
         </div>
@@ -77,10 +86,10 @@ const Index = () => {
           </div>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: "Sales", value: `$ ${totalSales.toLocaleString()}` },
-              { label: "Purchased", value: `$ ${totalPurchases.toLocaleString()}` },
-              { label: "Profit", value: `$ ${totalProfit.toLocaleString()}` },
-              { label: "Expense", value: `$ ${totalExpense.toLocaleString()}` },
+              { label: "Sales", value: maskSensitiveValue(formatCurrency(totalSales), security.hideAmounts) },
+              { label: "Purchased", value: maskSensitiveValue(formatCurrency(totalPurchases), security.hideAmounts) },
+              { label: "Profit", value: maskSensitiveValue(formatCurrency(totalProfit), security.hideAmounts) },
+              { label: "Expense", value: maskSensitiveValue(formatCurrency(totalExpense), security.hideAmounts) },
             ].map((item) => (
               <div key={item.label}>
                 <p className="text-primary/70 text-xs font-medium">{item.label}</p>

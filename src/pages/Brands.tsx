@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Plus, Search, Edit, Trash2 } from "lucide-react";
+import { useDebounce } from "@/hooks/use-debounce";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { store, Brand } from "@/lib/store";
@@ -12,10 +13,11 @@ const Brands = () => {
   const [brands, setBrands] = useState(store.getBrands());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [name, setName] = useState("");
   const [editItem, setEditItem] = useState<Brand | null>(null);
 
-  const filtered = brands.filter(b => b.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = brands.filter(b => b.name.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
   const add = () => {
     if (!name.trim()) return;

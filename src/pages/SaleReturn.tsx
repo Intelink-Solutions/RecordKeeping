@@ -4,6 +4,7 @@ import PageHeader from "@/components/PageHeader";
 import { store, SaleItem } from "@/lib/store";
 import { useNavigate, useParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/currency";
 
 const SaleReturn = () => {
   const { saleId } = useParams();
@@ -78,7 +79,7 @@ const SaleReturn = () => {
             <div key={item.productId} className="px-4 py-3 flex items-center border-b border-border last:border-0">
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-sm">{item.name}</p>
-                <p className="text-xs text-muted-foreground">Sold: {sale.items[idx].quantity} · Price: ${item.unitPrice}</p>
+                <p className="text-xs text-muted-foreground">Sold: {sale.items[idx].quantity} · Price: {formatCurrency(item.unitPrice)}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => updateQty(idx, -1)} className="w-7 h-7 rounded-full bg-muted flex items-center justify-center"><Minus size={14} /></button>
@@ -92,7 +93,7 @@ const SaleReturn = () => {
         <div className="bg-card rounded-xl p-4 border border-border">
           <div className="flex justify-between font-bold text-sm">
             <span>Return Total</span>
-            <span className="text-primary">$ {returnTotal.toFixed(2)}</span>
+            <span className="text-primary">{formatCurrency(returnTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
         </div>
 

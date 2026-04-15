@@ -1,5 +1,6 @@
 import ReportPage from "@/components/ReportPage";
 import { store } from "@/lib/store";
+import { formatCurrency } from "@/lib/currency";
 
 const ExpenseReport = () => {
   const expenses = store.getExpenses();
@@ -13,9 +14,9 @@ const ExpenseReport = () => {
         { key: "categoryName", label: "Category" },
         { key: "description", label: "Description" },
         { key: "paymentType", label: "Payment" },
-        { key: "amount", label: "Amount", render: (e) => <span className="font-semibold text-red-600">$ {e.amount.toFixed(2)}</span> },
+        { key: "amount", label: "Amount", render: (e) => <span className="font-semibold text-red-600">{formatCurrency(e.amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
       ]}
-      summaryCards={[{ label: "Total Expenses", value: `$ ${total.toLocaleString()}`, color: "#e74c3c" }]}
+      summaryCards={[{ label: "Total Expenses", value: formatCurrency(total), color: "#e74c3c" }]}
       searchKeys={["categoryName", "description"]}
       dateKey="date"
     />

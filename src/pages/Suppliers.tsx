@@ -6,16 +6,21 @@ import { store, Supplier } from "@/lib/store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useAppContext } from "@/hooks/use-app-context";
+import { formatCurrency } from "@/lib/currency";
+import { useDebounce } from "@/hooks/use-debounce";
 
 const Suppliers = () => {
   const { toast } = useToast();
+  const { canManageData, roleLabel } = useAppContext();
   const [suppliers, setSuppliers] = useState(store.getSuppliers());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null);
   const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", initialDue: "0" });
 
-  const filtered = suppliers.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = suppliers.filter(s => s.name.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
   const addSupplier = () => {
     if (!form.name.trim()) return;
@@ -42,6 +47,11 @@ const Suppliers = () => {
     <div className="min-h-screen bg-background pb-20">
       <PageHeader title="Suppliers" />
       <div className="px-4 py-3 space-y-3">
+        {!canManageData && (
+          <div className="text-xs rounded-lg border border-warning/30 bg-warning/10 text-warning px-3 py-2">
+            {roleLabel} access: view-only mode
+          </div>
+        )}
         <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>
         {filtered.map(s => (
           <div key={s.id} className="bg-card rounded-xl p-4 border border-border flex items-center gap-3">
@@ -51,19 +61,25 @@ const Suppliers = () => {
               {s.phone && <p className="text-[11px] text-muted-foreground">{s.phone}</p>}
             </div>
             <div className="text-right">
-              {s.due > 0 && <><p className="font-bold text-sm">$ {s.due.toLocaleString()}</p><p className="text-[10px] text-warning font-medium">Due</p></>}
+              {s.due > 0 && <><p className="font-bold text-sm">{formatCurrency(s.due)}</p><p className="text-[10px] text-warning font-medium">Due</p></>}
             </div>
             <div className="flex gap-1">
-              <button onClick={() => setEditSupplier(s)} className="p-1"><Edit size={14} className="text-muted-foreground" /></button>
-              <button onClick={() => deleteSupplier(s.id)} className="p-1"><Trash2 size={14} className="text-destructive" /></button>
+              {canManageData && (
+                <>
+                  <button onClick={() => setEditSupplier(s)} className="p-1"><Edit size={14} className="text-muted-foreground" /></button>
+                  <button onClick={() => deleteSupplier(s.id)} className="p-1"><Trash2 size={14} className="text-destructive" /></button>
+                </>
+              )}
             </div>
           </div>
         ))}
       </div>
 
-      <button onClick={() => setShowAdd(true)} className="fixed bottom-24 right-5 w-14 h-14 bg-primary text-primary-foreground rounded-full shadow-xl flex items-center justify-center"><Plus size={24} /></button>
+      {canManageData && (
+        <button onClick={() => setShowAdd(true)} className="fixed bottom-24 right-5 w-14 h-14 bg-primary text-primary-foreground rounded-full shadow-xl flex items-center justify-center"><Plus size={24} /></button>
+      )}
 
-      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+      <Dialog open={canManageData && showAdd} onOpenChange={setShowAdd}>
         <DialogContent>
           <DialogHeader><DialogTitle>Add Supplier</DialogTitle></DialogHeader>
           <div className="space-y-3">
@@ -77,7 +93,7 @@ const Suppliers = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editSupplier} onOpenChange={() => setEditSupplier(null)}>
+      <Dialog open={canManageData && !!editSupplier} onOpenChange={() => setEditSupplier(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Edit Supplier</DialogTitle></DialogHeader>
           {editSupplier && (

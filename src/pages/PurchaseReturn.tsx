@@ -4,6 +4,7 @@ import PageHeader from "@/components/PageHeader";
 import { store, PurchaseItem } from "@/lib/store";
 import { useNavigate, useParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/currency";
 
 const PurchaseReturn = () => {
   const { purchaseId } = useParams();
@@ -61,7 +62,7 @@ const PurchaseReturn = () => {
             </div>
           ))}
         </div>
-        <div className="bg-card rounded-xl p-4 border border-border"><div className="flex justify-between font-bold text-sm"><span>Return Total</span><span className="text-primary">$ {returnTotal.toFixed(2)}</span></div></div>
+        <div className="bg-card rounded-xl p-4 border border-border"><div className="flex justify-between font-bold text-sm"><span>Return Total</span><span className="text-primary">{formatCurrency(returnTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div></div>
         <button onClick={submit} className="w-full bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg">Process Return</button>
       </div>
     </div>

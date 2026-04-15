@@ -1,7 +1,8 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useRef } from "react";
-import { Printer } from "lucide-react";
+import { MessageCircle, Printer } from "lucide-react";
 import { store } from "@/lib/store";
+import { formatCurrency } from "@/lib/currency";
 
 interface InvoiceItem {
   name: string;
@@ -37,6 +38,48 @@ interface InvoiceModalProps {
 const InvoiceModal = ({ open, onClose, data }: InvoiceModalProps) => {
   const printRef = useRef<HTMLDivElement>(null);
   const biz = store.getBusinessProfile();
+
+  const toMoney = (value: number) => formatCurrency(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const sanitizePhoneForWhatsapp = (phone?: string): string => {
+    if (!phone) return "";
+    return phone.replace(/[^\d]/g, "");
+  };
+
+  const buildWhatsappMessage = (): string => {
+    const partyLabel = data.type.includes("Purchase") ? "Supplier" : "Customer";
+    const partyName = data.supplierName || data.customerName || "N/A";
+    const lines = [
+      `*${biz.companyName}*`,
+      `${data.type} Invoice`,
+      `Invoice: ${data.invoiceNo}`,
+      `Date: ${data.date}`,
+      `${partyLabel}: ${partyName}`,
+      ...(data.phone ? [`Phone: ${data.phone}`] : []),
+      "",
+      "*Items:*",
+      ...data.items.map((item, i) => `${i + 1}. ${item.name} x${item.quantity} = ${toMoney(item.quantity * item.unitPrice)}`),
+      "",
+      `Subtotal: ${toMoney(data.subtotal)}`,
+      ...(data.vat && data.vat > 0 ? [`VAT (${data.vatPercent ?? 0}%): ${toMoney(data.vat)}`] : []),
+      ...(data.discount > 0 ? [`Discount: -${toMoney(data.discount)}`] : []),
+      `*Total: ${toMoney(data.total)}*`,
+      `Paid: ${toMoney(data.paid)}`,
+      ...(data.due > 0 ? [`Due: ${toMoney(data.due)}`] : []),
+      ...((data.change ?? 0) > 0 ? [`Change: ${toMoney(data.change ?? 0)}`] : []),
+      "",
+      "Thank you for your business!",
+    ];
+
+    return lines.join("\n");
+  };
+
+  const handleShareWhatsapp = () => {
+    const text = encodeURIComponent(buildWhatsappMessage());
+    const phone = sanitizePhoneForWhatsapp(data.phone);
+    const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   const handlePrint = () => {
     const content = printRef.current;
@@ -76,9 +119,14 @@ const InvoiceModal = ({ open, onClose, data }: InvoiceModalProps) => {
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             Invoice Preview
-            <button onClick={handlePrint} className="bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1">
-              <Printer size={14} /> Print
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={handleShareWhatsapp} className="bg-success text-success-foreground px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1">
+                <MessageCircle size={14} /> WhatsApp
+              </button>
+              <button onClick={handlePrint} className="bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1">
+                <Printer size={14} /> Print
+              </button>
+            </div>
           </DialogTitle>
         </DialogHeader>
 
