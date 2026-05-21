@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, Search, Edit, Trash2, ChevronRight } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { store, Customer } from "@/lib/store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -10,43 +11,84 @@ import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/hooks/use-app-context";
 import { formatCurrency } from "@/lib/currency";
 import { useDebounce } from "@/hooks/use-debounce";
+import { apiCreateParty, apiUpdateParty, apiDeleteParty } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
+import { useLiveData, showSaved } from "@/hooks/use-live-data";
 
 const typeColors: Record<string, string> = { Dealer: "#e74c3c", Retailer: "#e67e22", Wholesaler: "#27ae60" };
 
 const Customers = () => {
   const { toast } = useToast();
   const { canManageData, roleLabel } = useAppContext();
-  const [customers, setCustomers] = useState(store.getCustomers());
+  const customers = useLiveData(() => store.getCustomers());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", type: "Retailer" as Customer["type"], initialDue: "0" });
 
   const filtered = customers.filter(c => c.name.toLowerCase().includes(debouncedSearch.toLowerCase()) || c.phone?.includes(debouncedSearch));
 
   const resetForm = () => setForm({ name: "", phone: "", email: "", address: "", type: "Retailer", initialDue: "0" });
 
-  const addCustomer = () => {
+  const [saving, setSaving] = useState(false);
+
+  const addCustomer = async () => {
     if (!form.name.trim()) return;
-    const due = Number(form.initialDue) || 0;
-    const updated = [...customers, { id: store.nextId(), name: form.name.trim(), phone: form.phone, email: form.email, address: form.address, type: form.type, initialDue: due, due }];
-    setCustomers(updated); store.saveCustomers(updated);
-    resetForm(); setShowAdd(false);
-    toast({ title: "Customer added!" });
+    setSaving(true);
+    try {
+      const due = Number(form.initialDue) || 0;
+      await apiCreateParty({
+        name: form.name.trim(),
+        type: form.type,
+        phone: form.phone || undefined,
+        email: form.email || undefined,
+        address: form.address || undefined,
+        opening_balance: due,
+        opening_balance_type: "due",
+      });
+      await syncLiveBusinessData();
+      resetForm(); setShowAdd(false);
+      showSaved("Customer added!");
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to add customer", variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editCustomer) return;
-    const updated = customers.map(c => c.id === editCustomer.id ? editCustomer : c);
-    setCustomers(updated); store.saveCustomers(updated);
-    setEditCustomer(null); toast({ title: "Updated!" });
+    setSaving(true);
+    try {
+      await apiUpdateParty(editCustomer.id, {
+        name: editCustomer.name,
+        type: editCustomer.type,
+        phone: editCustomer.phone || undefined,
+        email: editCustomer.email || undefined,
+        address: editCustomer.address || undefined,
+      });
+      await syncLiveBusinessData();
+      setEditCustomer(null);
+      showSaved("Customer updated!");
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to update customer", variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
-  const deleteCustomer = (id: string) => {
-    const updated = customers.filter(c => c.id !== id);
-    setCustomers(updated); store.saveCustomers(updated);
-    toast({ title: "Deleted" });
+  const executeDeleteCustomer = async () => {
+    if (!confirmDeleteId) return;
+    setDeleting(true);
+    try {
+      await apiDeleteParty(confirmDeleteId);
+      await syncLiveBusinessData();
+      showSaved("Customer deleted");
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to delete customer", variant: "destructive" });
+    } finally {
+      setDeleting(false);
+      setConfirmDeleteId(null);
+    }
   };
 
   return (
@@ -74,7 +116,7 @@ const Customers = () => {
               {canManageData && (
                 <>
                   <button onClick={() => setEditCustomer(c)} className="p-1"><Edit size={14} className="text-muted-foreground" /></button>
-                  <button onClick={() => deleteCustomer(c.id)} className="p-1"><Trash2 size={14} className="text-destructive" /></button>
+                  <button onClick={() => setConfirmDeleteId(c.id)} className="p-1"><Trash2 size={14} className="text-destructive" /></button>
                 </>
               )}
             </div>
@@ -96,7 +138,7 @@ const Customers = () => {
             <Input placeholder="Address" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} />
             <Select value={form.type} onValueChange={v => setForm({ ...form, type: v as Customer["type"] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Retailer">Retailer</SelectItem><SelectItem value="Wholesaler">Wholesaler</SelectItem><SelectItem value="Dealer">Dealer</SelectItem></SelectContent></Select>
             <Input placeholder="Initial Due" type="number" value={form.initialDue} onChange={e => setForm({ ...form, initialDue: e.target.value })} />
-            <button onClick={addCustomer} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Save</button>
+            <button onClick={addCustomer} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Saving..." : "Save"}</button>
           </div>
         </DialogContent>
       </Dialog>
@@ -109,11 +151,20 @@ const Customers = () => {
               <Input value={editCustomer.name} onChange={e => setEditCustomer({ ...editCustomer, name: e.target.value })} />
               <Input value={editCustomer.phone || ""} onChange={e => setEditCustomer({ ...editCustomer, phone: e.target.value })} placeholder="Phone" />
               <Select value={editCustomer.type} onValueChange={v => setEditCustomer({ ...editCustomer, type: v as Customer["type"] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Retailer">Retailer</SelectItem><SelectItem value="Wholesaler">Wholesaler</SelectItem><SelectItem value="Dealer">Dealer</SelectItem></SelectContent></Select>
-              <button onClick={saveEdit} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Update</button>
+              <button onClick={saveEdit} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Updating..." : "Update"}</button>
             </div>
           )}
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        title="Delete Customer"
+        message="Are you sure you want to delete this customer? This action cannot be undone."
+        onConfirm={executeDeleteCustomer}
+        onCancel={() => setConfirmDeleteId(null)}
+        loading={deleting}
+      />
+
       <BottomNav />
     </div>
   );

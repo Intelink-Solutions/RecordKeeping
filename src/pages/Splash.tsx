@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { tokenStorage } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
 import logo from "@/assets/logo.png";
 
 const REDIRECT_DELAY_MS = 2600;
@@ -11,6 +12,11 @@ const Splash = () => {
   const [progress, setProgress] = useState(false);
 
   useEffect(() => {
+    // Kick off background data sync immediately so pages have fresh data on arrival
+    if (!tokenStorage.isOffline() && tokenStorage.get()) {
+      void syncLiveBusinessData().catch(() => {});
+    }
+
     // Trigger entrance animation on next tick
     const animTimer = setTimeout(() => {
       setVisible(true);

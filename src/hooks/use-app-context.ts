@@ -5,8 +5,11 @@ import {
   canEditUserProfile,
   canManageData,
   getCurrentRole,
+  isOwner,
+  hasPermission,
   roleLabel,
 } from "@/lib/permissions";
+import type { Visibility } from "@/lib/permissions";
 
 export function useAppContext() {
   const role = getCurrentRole();
@@ -17,9 +20,11 @@ export function useAppContext() {
       role,
       roleLabel: roleLabel(role),
       syncStatus,
+      isOwner: isOwner(role),
       canManageData: canManageData(role),
       canAccessSettings: canAccessSettings(role),
       canEditUserProfile: canEditUserProfile(role),
+      hasPermission: (key: keyof Visibility) => hasPermission(key, role),
     };
   }, [role, syncStatus]);
 }

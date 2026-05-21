@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Lock } from "lucide-react";
 import { Navigate, Outlet } from "react-router-dom";
+import { emitStoreUpdate } from "@/hooks/use-live-data";
 import { tokenStorage } from "@/lib/api";
+import { evaluateAlertNotifications } from "@/lib/alert-notifications";
 import { syncLiveBusinessData } from "@/lib/live-sync";
 import { store } from "@/lib/store";
 import { getAutoLockTimeoutMs, hasPinSet, loadSecurityPrefs, SECURITY_PREFS_UPDATED_EVENT, verifyPin } from "@/lib/security";
@@ -19,7 +21,6 @@ const UNLOCKED_KEY = "pos_security_unlocked";
  */
 const ProtectedRoute = () => {
   const token = tokenStorage.get();
-  const [bootstrapping, setBootstrapping] = useState(true);
   const [locked, setLocked] = useState(false);
   const [unlockingBiometric, setUnlockingBiometric] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
@@ -30,29 +31,22 @@ const ProtectedRoute = () => {
   const [pinVerifying, setPinVerifying] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
+    if (!token) return;
 
-    const bootstrap = async () => {
-      if (!token) {
-        if (mounted) setBootstrapping(false);
-        return;
-      }
+    let active = true;
 
-      try {
-        if (store.getBusinessProfile().isOnline) {
-          await syncLiveBusinessData();
-        }
-      } catch {
-        // Keep local/offline data if live bootstrap fails.
-      } finally {
-        if (mounted) setBootstrapping(false);
-      }
+    const runSync = () => {
+      if (!active) return;
+      // syncLiveBusinessData handles isOffline/isOnline checks and never throws
+      void syncLiveBusinessData();
     };
 
-    bootstrap();
+    runSync();
+    const syncInterval = window.setInterval(runSync, 30_000);
 
     return () => {
-      mounted = false;
+      active = false;
+      window.clearInterval(syncInterval);
     };
   }, [token]);
 
@@ -146,6 +140,28 @@ const ProtectedRoute = () => {
     };
   }, [securityPrefs.biometric]);
 
+  useEffect(() => {
+    if (!token) return;
+
+    const runAlerts = () => {
+      void evaluateAlertNotifications().catch(() => undefined);
+    };
+
+    runAlerts();
+    const intervalId = window.setInterval(runAlerts, 60_000);
+    const onFocus = () => runAlerts();
+    const onStoreUpdate = () => emitStoreUpdate();
+
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("storage", onStoreUpdate);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("storage", onStoreUpdate);
+    };
+  }, [token]);
+
   const unlockManually = () => {
     setLocked(false);
     setUnlockError("");
@@ -205,20 +221,6 @@ const ProtectedRoute = () => {
 
   if (!token) {
     return <Navigate to="/login" replace />;
-  }
-
-  if (bootstrapping) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-6">
-        <div className="text-center space-y-3">
-          <div className="w-10 h-10 mx-auto rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
-          <div>
-            <p className="font-semibold text-sm">Preparing your workspace</p>
-            <p className="text-xs text-muted-foreground">Syncing live business data...</p>
-          </div>
-        </div>
-      </div>
-    );
   }
 
   if (locked) {

@@ -3,6 +3,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import CrudListPage from "@/components/CrudListPage";
 import { store, Attendance, Employee } from "@/lib/store";
 import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
+import { apiCreateHrmResourceForm, apiUpdateHrmResourceForm, apiDeleteHrmResource } from "@/lib/api";
 
 const AttendanceList = () => {
   const { items, saveItems } = useHrmLiveList<Attendance>({
@@ -22,6 +23,10 @@ const AttendanceList = () => {
       title="Attendance List"
       items={items}
       onSave={saveItems}
+      apiResource="attendances"
+      onApiCreate={(data) => apiCreateHrmResourceForm<Attendance>("attendances", data as Record<string, unknown>)}
+      onApiUpdate={(id, data) => apiUpdateHrmResourceForm<Attendance>("attendances", id, data as Record<string, unknown>)}
+      onApiDelete={(id) => apiDeleteHrmResource("attendances", id)}
       columns={[
         { key: "employeeName", label: "Employee" },
         { key: "date", label: "Date" },
@@ -38,7 +43,7 @@ const AttendanceList = () => {
           }}>
             <SelectTrigger><SelectValue placeholder="Select Employee" /></SelectTrigger>
             <SelectContent>
-              {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name} ({e.employeeId})</SelectItem>)}
+              {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <div>
@@ -66,6 +71,12 @@ const AttendanceList = () => {
         </>
       )}
       createDefaults={() => ({ employeeId: "", employeeName: "", date: new Date().toISOString().split("T")[0], checkIn: "", checkOut: "", status: "Present" as const })}
+      validate={(item) => {
+        if (!item.employeeId) return "Please select an employee.";
+        if (!item.date) return "Date is required.";
+        if (!item.checkIn) return "Check-in time is required.";
+        return null;
+      }}
       searchKey="employeeName"
       displayName="Attendance"
     />

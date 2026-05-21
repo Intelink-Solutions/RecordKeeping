@@ -1,21 +1,30 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Minus, Plus } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { store, SaleItem } from "@/lib/store";
 import { useNavigate, useParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/currency";
+import { apiCreateSaleReturn } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
 
 const SaleReturn = () => {
   const { saleId } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const sales = store.getSales();
-  const sale = sales.find(s => s.id === saleId);
+  const [saving, setSaving] = useState(false);
 
-  const [returnItems, setReturnItems] = useState<SaleItem[]>(
-    sale?.items.map(i => ({ ...i, quantity: 0 })) || []
-  );
+  const sales = store.getSales();
+  const sale = useMemo(() => sales.find(s => s.id === saleId), [sales, saleId]);
+
+  const [returnItems, setReturnItems] = useState<SaleItem[]>([]);
+
+  // Reset return items when sale changes
+  useEffect(() => {
+    if (sale) {
+      setReturnItems(sale.items.map(i => ({ ...i, quantity: 0 })));
+    }
+  }, [sale]);
 
   if (!sale) return <div className="min-h-screen bg-background flex items-center justify-center"><p>Sale not found</p></div>;
 
@@ -29,39 +38,34 @@ const SaleReturn = () => {
 
   const returnTotal = returnItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
 
-  const submit = () => {
+  const submit = async () => {
     const hasReturn = returnItems.some(i => i.quantity > 0);
     if (!hasReturn) {
       toast({ title: "Please select items to return", variant: "destructive" });
       return;
     }
 
-    const returns = store.getSaleReturns();
-    returns.push({
-      id: store.nextId(),
-      saleId: sale.id,
-      invoiceNo: `SR-${sale.invoiceNo.replace("S-", "")}`,
-      date: new Date().toISOString().split("T")[0],
-      customerName: sale.customerName,
-      items: returnItems.filter(i => i.quantity > 0),
-      total: returnTotal,
-    });
-    store.saveSaleReturns(returns);
+    setSaving(true);
+    try {
+      // Build return_qty array indexed by sale detail position
+      const return_qty = returnItems.map(i => i.quantity);
 
-    // Mark sale as returned
-    const updatedSales = sales.map(s => s.id === sale.id ? { ...s, returned: true } : s);
-    store.saveSales(updatedSales);
+      await apiCreateSaleReturn({
+        sale_id: sale.id,
+        return_qty,
+      });
 
-    // Restore stock
-    const products = store.getProducts();
-    const updatedProducts = products.map(p => {
-      const returnItem = returnItems.find(i => i.productId === p.id && i.quantity > 0);
-      return returnItem ? { ...p, stock: p.stock + returnItem.quantity } : p;
-    });
-    store.saveProducts(updatedProducts);
+      // Re-sync from backend to get updated data
+      await syncLiveBusinessData();
 
-    toast({ title: "Sale return processed!" });
-    navigate("/sale-returns");
+      toast({ title: "Sale return processed!" });
+      navigate("/sale-returns");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to process return";
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -97,7 +101,7 @@ const SaleReturn = () => {
           </div>
         </div>
 
-        <button onClick={submit} className="w-full bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg">Process Return</button>
+        <button onClick={submit} disabled={saving} className="w-full bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-60">{saving ? "Processing..." : "Process Return"}</button>
       </div>
     </div>
   );

@@ -65,6 +65,9 @@ const Login = () => {
     setLoading(true);
     try {
       const res = await apiLogin(email.trim().toLowerCase(), password);
+      if (!res?.data?.token) {
+        throw new Error(res?.message || "Server returned an unexpected response. You may be blocked by bot protection.");
+      }
       tokenStorage.set(res.data.token);
       store.applyBackendCurrency(res.data.currency);
 
@@ -72,6 +75,7 @@ const Login = () => {
         const profile = await apiGetProfile();
         setCurrentRole(profile.role || "staff");
         store.applyBackendUserProfile(profile);
+        if (profile.id) store.setCurrentUserId(profile.id);
         apiGetBusinessProfile().then(biz => { if (biz) store.applyBackendBusinessProfile(biz); }).catch(() => {});
       } catch {
         setCurrentRole("staff");
@@ -130,6 +134,7 @@ const Login = () => {
         const profile = await apiGetProfile();
         setCurrentRole(profile.role || "staff");
         store.applyBackendUserProfile(profile);
+        if (profile.id) store.setCurrentUserId(profile.id);
         apiGetBusinessProfile().then(biz => { if (biz) store.applyBackendBusinessProfile(biz); }).catch(() => {});
       } catch {
         setCurrentRole("staff");

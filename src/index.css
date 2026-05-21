@@ -105,9 +105,16 @@
     @apply border-border;
   }
 
+  html {
+    /* Bump base from 16px → 17px so all rem-scaled Tailwind classes read ~6% larger */
+    font-size: 17px;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Plus Jakarta Sans', sans-serif;
+    /* Ensure minimum tap target legibility */
+    -webkit-text-size-adjust: 100%;
   }
 }
 

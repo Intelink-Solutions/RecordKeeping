@@ -3,6 +3,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import CrudListPage from "@/components/CrudListPage";
 import { store, LeaveType } from "@/lib/store";
 import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
+import { apiCreateHrmResourceForm, apiUpdateHrmResourceForm, apiDeleteHrmResource } from "@/lib/api";
 
 const LeaveTypes = () => {
   const { items, saveItems } = useHrmLiveList<LeaveType>({
@@ -16,6 +17,10 @@ const LeaveTypes = () => {
     title="Leave Type List"
     items={items}
     onSave={saveItems}
+    apiResource="leave-types"
+    onApiCreate={(data) => apiCreateHrmResourceForm<LeaveType>("leave-types", data as Record<string, unknown>)}
+    onApiUpdate={(id, data) => apiUpdateHrmResourceForm<LeaveType>("leave-types", id, data as Record<string, unknown>)}
+    onApiDelete={(id) => apiDeleteHrmResource("leave-types", id)}
     columns={[
       { key: "name", label: "Name" },
       { key: "days", label: "Days" },
@@ -35,6 +40,11 @@ const LeaveTypes = () => {
       </>
     )}
     createDefaults={() => ({ name: "", days: 0, status: "Active" as const })}
+    validate={(item) => {
+      if (!item.name?.trim()) return "Leave type name is required.";
+      if (!item.days || item.days <= 0) return "Days allowed must be greater than 0.";
+      return null;
+    }}
     searchKey="name"
     displayName="Leave Type"
   />

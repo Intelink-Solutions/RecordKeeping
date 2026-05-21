@@ -7,10 +7,13 @@ import { store, Brand } from "@/lib/store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { apiCreateBrand, apiUpdateBrand, apiDeleteBrand } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
+import { useLiveData, showSaved } from "@/hooks/use-live-data";
 
 const Brands = () => {
   const { toast } = useToast();
-  const [brands, setBrands] = useState(store.getBrands());
+  const brands = useLiveData(() => store.getBrands());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
@@ -19,22 +22,39 @@ const Brands = () => {
 
   const filtered = brands.filter(b => b.name.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
-  const add = () => {
+  const [saving, setSaving] = useState(false);
+
+  const add = async () => {
     if (!name.trim()) return;
-    const updated = [...brands, { id: store.nextId(), name: name.trim() }];
-    setBrands(updated); store.saveBrands(updated);
-    setName(""); setShowAdd(false); toast({ title: "Brand added!" });
+    setSaving(true);
+    try {
+      await apiCreateBrand(name.trim());
+      await syncLiveBusinessData();
+      setName(""); setShowAdd(false); showSaved("Brand added!");
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to add brand", variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editItem) return;
-    const updated = brands.map(b => b.id === editItem.id ? editItem : b);
-    setBrands(updated); store.saveBrands(updated); setEditItem(null);
+    setSaving(true);
+    try {
+      await apiUpdateBrand(editItem.id, editItem.name);
+      await syncLiveBusinessData();
+      setEditItem(null);
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to update brand", variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
-  const deleteItem = (id: string) => {
-    const updated = brands.filter(b => b.id !== id);
-    setBrands(updated); store.saveBrands(updated);
+  const deleteItem = async (id: string) => {
+    try {
+      await apiDeleteBrand(id);
+      await syncLiveBusinessData();
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to delete brand", variant: "destructive" });
+    }
   };
 
   return (
@@ -52,10 +72,10 @@ const Brands = () => {
       </div>
       <button onClick={() => setShowAdd(true)} className="fixed bottom-24 right-5 w-14 h-14 bg-primary text-primary-foreground rounded-full shadow-xl flex items-center justify-center"><Plus size={24} /></button>
       <Dialog open={showAdd} onOpenChange={setShowAdd}><DialogContent><DialogHeader><DialogTitle>Add Brand</DialogTitle></DialogHeader>
-        <div className="space-y-3"><Input placeholder="Brand Name *" value={name} onChange={e => setName(e.target.value)} /><button onClick={add} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Save</button></div>
+        <div className="space-y-3"><Input placeholder="Brand Name *" value={name} onChange={e => setName(e.target.value)} /><button onClick={add} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Saving..." : "Save"}</button></div>
       </DialogContent></Dialog>
       <Dialog open={!!editItem} onOpenChange={() => setEditItem(null)}><DialogContent><DialogHeader><DialogTitle>Edit Brand</DialogTitle></DialogHeader>
-        {editItem && <div className="space-y-3"><Input value={editItem.name} onChange={e => setEditItem({ ...editItem, name: e.target.value })} /><button onClick={saveEdit} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Update</button></div>}
+        {editItem && <div className="space-y-3"><Input value={editItem.name} onChange={e => setEditItem({ ...editItem, name: e.target.value })} /><button onClick={saveEdit} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Updating..." : "Update"}</button></div>}
       </DialogContent></Dialog>
       <BottomNav />
     </div>

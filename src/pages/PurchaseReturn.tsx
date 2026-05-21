@@ -1,21 +1,30 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Minus, Plus } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { store, PurchaseItem } from "@/lib/store";
 import { useNavigate, useParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/currency";
+import { apiCreatePurchaseReturn } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
 
 const PurchaseReturn = () => {
   const { purchaseId } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const purchases = store.getPurchases();
-  const purchase = purchases.find(p => p.id === purchaseId);
+  const [saving, setSaving] = useState(false);
 
-  const [returnItems, setReturnItems] = useState<PurchaseItem[]>(
-    purchase?.items.map(i => ({ ...i, quantity: 0 })) || []
-  );
+  const purchases = store.getPurchases();
+  const purchase = useMemo(() => purchases.find(p => p.id === purchaseId), [purchases, purchaseId]);
+
+  const [returnItems, setReturnItems] = useState<PurchaseItem[]>([]);
+
+  // Reset return items when purchase changes
+  useEffect(() => {
+    if (purchase) {
+      setReturnItems(purchase.items.map(i => ({ ...i, quantity: 0 })));
+    }
+  }, [purchase]);
 
   if (!purchase) return <div className="min-h-screen bg-background flex items-center justify-center"><p>Purchase not found</p></div>;
 
@@ -28,17 +37,28 @@ const PurchaseReturn = () => {
 
   const returnTotal = returnItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
 
-  const submit = () => {
+  const submit = async () => {
     if (!returnItems.some(i => i.quantity > 0)) { toast({ title: "Select items to return", variant: "destructive" }); return; }
-    const returns = store.getPurchaseReturns();
-    returns.push({ id: store.nextId(), purchaseId: purchase.id, invoiceNo: `PR-${purchase.invoiceNo.replace("P-", "")}`, date: new Date().toISOString().split("T")[0], supplierName: purchase.supplierName, items: returnItems.filter(i => i.quantity > 0), total: returnTotal });
-    store.savePurchaseReturns(returns);
-    store.savePurchases(purchases.map(p => p.id === purchase.id ? { ...p, returned: true } : p));
-    // Reduce stock
-    const products = store.getProducts();
-    store.saveProducts(products.map(p => { const ri = returnItems.find(i => i.productId === p.id && i.quantity > 0); return ri ? { ...p, stock: p.stock - ri.quantity } : p; }));
-    toast({ title: "Purchase return processed!" });
-    navigate("/purchase-returns");
+
+    setSaving(true);
+    try {
+      const return_qty = returnItems.map(i => i.quantity);
+
+      await apiCreatePurchaseReturn({
+        purchase_id: purchase.id,
+        return_qty,
+      });
+
+      await syncLiveBusinessData();
+
+      toast({ title: "Purchase return processed!" });
+      navigate("/purchase-returns");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to process return";
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -63,7 +83,7 @@ const PurchaseReturn = () => {
           ))}
         </div>
         <div className="bg-card rounded-xl p-4 border border-border"><div className="flex justify-between font-bold text-sm"><span>Return Total</span><span className="text-primary">{formatCurrency(returnTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div></div>
-        <button onClick={submit} className="w-full bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg">Process Return</button>
+        <button onClick={submit} disabled={saving} className="w-full bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-60">{saving ? "Processing..." : "Process Return"}</button>
       </div>
     </div>
   );

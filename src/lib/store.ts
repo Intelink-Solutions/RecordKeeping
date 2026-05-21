@@ -27,6 +27,8 @@ export interface Product {
   categoryId?: string;
   brandId?: string;
   unitId?: string;
+  vatId?: string;
+  stockId?: string;
   price: number;
   costPrice: number;
   retailPrice: number;
@@ -34,6 +36,8 @@ export interface Product {
   dealerPrice: number;
   stock: number;
   alertQty: number;
+  profitMargin?: number;
+  manufacturer?: string;
   expiryDate?: string;
   image?: string;
 }
@@ -65,6 +69,7 @@ export interface SaleItem {
   quantity: number;
   unitPrice: number;
   discount: number;
+  stockId?: string;
 }
 
 export interface Sale {
@@ -187,24 +192,29 @@ export interface Designation {
 export interface Shift {
   id: string;
   name: string;
+  breakStatus: "Yes" | "No";
   startTime: string;
   endTime: string;
-  breakTime: string;
+  startBreakTime?: string;
+  endBreakTime?: string;
   status: "Active" | "Inactive";
 }
 
 export interface Employee {
   id: string;
-  employeeId: string;
   name: string;
-  phone?: string;
-  email?: string;
-  departmentId: string;
   designationId: string;
+  departmentId: string;
   shiftId: string;
-  joinDate: string;
+  gender?: string;
+  birthDate?: string;
+  email?: string;
+  country?: string;
+  phone?: string;
   salary: number;
+  joinDate: string;
   status: "Active" | "Inactive";
+  image?: string;
 }
 
 export interface LeaveType {
@@ -218,6 +228,7 @@ export interface Leave {
   id: string;
   employeeId: string;
   employeeName: string;
+  departmentName?: string;
   leaveTypeId: string;
   leaveTypeName: string;
   startDate: string;
@@ -246,14 +257,13 @@ export interface Attendance {
 export interface Payroll {
   id: string;
   employeeId: string;
-  employeeName: string;
+  employeeName?: string;
+  paymentYear: number;
   month: string;
-  basicSalary: number;
-  bonus: number;
-  deduction: number;
-  netSalary: number;
-  status: "Paid" | "Unpaid";
-  paidDate?: string;
+  date: string;
+  amount: number;
+  paymentType: string;
+  note?: string;
 }
 
 export interface VatRate {
@@ -305,6 +315,7 @@ export interface Party {
 
 // ===== Storage Keys =====
 const KEYS = {
+  currentUserId: "pos_current_user_id",
   products: "pos_products",
   categories: "pos_categories",
   brands: "pos_brands",
@@ -446,6 +457,12 @@ function nextCode(prefix: string, key: string, defaults: { code: string }[]): st
 // ===== Store =====
 export const store = {
   nextId,
+  // Shop owner identity (persisted from backend profile)
+  getCurrentUserId: (): string | null => localStorage.getItem(KEYS.currentUserId),
+  setCurrentUserId: (id: number | string): void => {
+    localStorage.setItem(KEYS.currentUserId, String(id));
+  },
+
   // Products
   getProducts: () => load<Product>(KEYS.products, defaultProducts),
   saveProducts: (p: Product[]) => save(KEYS.products, p),

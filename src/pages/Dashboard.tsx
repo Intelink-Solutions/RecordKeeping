@@ -8,10 +8,12 @@ import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/currency";
 import { useSecurityPrefs } from "@/hooks/use-security-prefs";
 import { maskSensitiveValue } from "@/lib/security";
+import { useStoreRefresh } from "@/hooks/use-live-data";
 
 const Dashboard = () => {
   const { toast } = useToast();
   const security = useSecurityPrefs();
+  useStoreRefresh();
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveSummary, setLiveSummary] = useState<{ sales: number; income: number; expense: number; purchase: number } | null>(null);
   const [liveDashboard, setLiveDashboard] = useState<{

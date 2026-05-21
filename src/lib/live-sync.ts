@@ -1,7 +1,7 @@
-import { apiGet } from "@/lib/api";
-import { apiGetProfile } from "@/lib/api";
-import { setCurrentRole } from "@/lib/permissions";
+import { apiGet, apiGetWeb, apiGetProfile, tokenStorage } from "@/lib/api";
+import { setCurrentRole, setVisibility } from "@/lib/permissions";
 import { setSyncStatus } from "@/lib/sync-status";
+import { emitStoreUpdate } from "@/hooks/use-live-data";
 import {
   store,
   Brand,
@@ -12,23 +12,50 @@ import {
   Income,
   IncomeCategory,
   Product,
+  Unit,
   Purchase,
   PurchaseReturn,
   Sale,
   SaleReturn,
   Supplier,
   Party,
+  Attendance,
+  Payroll,
+  Leave,
 } from "@/lib/store";
 
 function asArray<T>(payload: unknown): T[] {
   if (Array.isArray(payload)) return payload as T[];
   if (!payload || typeof payload !== "object") return [];
   const obj = payload as Record<string, unknown>;
+
+  // { data: [...] }
   if (Array.isArray(obj.data)) return obj.data as T[];
+
+  // { data: { data: [...] } }  — standard Laravel paginator
   if (obj.data && typeof obj.data === "object") {
     const nested = obj.data as Record<string, unknown>;
     if (Array.isArray(nested.data)) return nested.data as T[];
   }
+
+  // { products: [...] } / { items: [...] } / { result: [...] } / { results: [...] }
+  for (const key of ["products", "categories", "brands", "parties",
+    "customers", "suppliers", "sales", "purchases",
+    "expenses", "incomes", "items", "result", "results", "list"]) {
+    if (Array.isArray(obj[key])) return obj[key] as T[];
+  }
+
+  // { status: true/false, data: ... }  — some backends wrap success status
+  if ("status" in obj && obj.data !== undefined) {
+    if (typeof obj.data === "object" && !Array.isArray(obj.data)) {
+      const inner = obj.data as Record<string, unknown>;
+      if (Array.isArray(inner.data)) return inner.data as T[];
+      for (const key of ["products", "items", "result", "results", "list"]) {
+        if (Array.isArray(inner[key])) return inner[key] as T[];
+      }
+    }
+  }
+
   return [];
 }
 
@@ -52,37 +79,91 @@ function mapBrand(row: Record<string, unknown>): Brand {
   };
 }
 
+function mapUnit(row: Record<string, unknown>): Unit {
+  return {
+    id: toId(row.id),
+    name: String(row.unitName ?? row.name ?? "Unit"),
+    shortName: String(row.unitCode ?? row.shortName ?? row.short_name ?? row.code ?? "u"),
+  };
+}
+
 function getProductStocks(row: Record<string, unknown>): Record<string, unknown>[] {
-  return Array.isArray(row.stocks) ? (row.stocks as Record<string, unknown>[]) : [];
+  if (Array.isArray(row.stocks)) return row.stocks as Record<string, unknown>[];
+  if (row.stocks && typeof row.stocks === "object") {
+    const stocksObj = row.stocks as Record<string, unknown>;
+    if (Array.isArray(stocksObj.data)) return stocksObj.data as Record<string, unknown>[];
+  }
+  if (Array.isArray(row.stock)) return row.stock as Record<string, unknown>[];
+  return [];
 }
 
 function mapProduct(row: Record<string, unknown>): Product {
   const stocks = getProductStocks(row);
   const firstStock = stocks[0] ?? {};
-  const stockCount = typeof row.stocks_sum_product_stock === "number"
-    ? row.stocks_sum_product_stock
-    : typeof row.productStock === "number"
-      ? row.productStock
-      : typeof row.stock === "number"
-        ? row.stock
-        : stocks.reduce((sum, stock) => sum + Number(stock.productStock ?? stock.stock ?? 0), 0);
+
+  function toNumber(value: unknown): number {
+    if (value === null || value === undefined || value === "") return 0;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  // Stock count: prefer aggregate sum, then root fields, then sum stocks manually
+  const stockCount =
+    typeof row.stocks_sum_product_stock === "number" ? row.stocks_sum_product_stock
+    : typeof row.stocks_sum_product_stock === "string" ? Number(row.stocks_sum_product_stock)
+    : typeof row.productStock === "number" ? row.productStock
+    : typeof row.productStock === "string" ? Number(row.productStock)
+    : typeof row.product_stock === "number" ? row.product_stock
+    : typeof row.product_stock === "string" ? Number(row.product_stock)
+    : typeof row.stock === "number" ? row.stock
+    : typeof row.stock === "string" ? Number(row.stock)
+    : typeof row.qty === "number" ? row.qty
+    : typeof row.qty === "string" ? Number(row.qty)
+    : typeof row.total_stock === "number" ? row.total_stock
+    : typeof row.total_stock === "string" ? Number(row.total_stock)
+    : stocks.reduce((sum, s) => sum + toNumber(s.productStock ?? s.product_stock ?? s.stock ?? s.qty ?? 0), 0);
+
+  // Price helpers: check stock row first, then root fields, then fallback
+  function pickPrice(...keys: (string | undefined)[]): number {
+    for (const key of keys) {
+      if (!key) continue;
+      const fromStock = firstStock[key];
+      if (fromStock !== undefined && fromStock !== null && Number(fromStock) !== 0) return Number(fromStock);
+      const fromRow = row[key];
+      if (fromRow !== undefined && fromRow !== null && Number(fromRow) !== 0) return Number(fromRow);
+    }
+    return 0;
+  }
+
+  const salePrice = pickPrice("productSalePrice", "salePrice", "sale_price", "inclusive_price", "exclusive_price", "price", "selling_price", "retail_price");
+  const costPrice = pickPrice("productPurchasePrice", "purchasePrice", "purchase_price", "costPrice", "cost_price", "buying_price", "exclusive_price", "inclusive_price");
+  const wholesalePrice = pickPrice("productWholeSalePrice", "productWholesalePrice", "wholesalePrice", "wholesale_price") || salePrice;
+  const dealerPrice = pickPrice("productDealerPrice", "dealerPrice", "dealer_price") || salePrice;
+  const retailPrice = pickPrice("productRetailPrice", "retailPrice", "retail_price", "productSalePrice", "sale_price") || salePrice;
 
   return {
     id: toId(row.id),
-    name: String(row.productName ?? row.name ?? ""),
-    code: String(row.productCode ?? row.code ?? `PRD-${toId(row.id)}`),
+    name: String(row.productName ?? row.product_name ?? row.name ?? ""),
+    code: String(row.productCode ?? row.product_code ?? row.code ?? `PRD-${toId(row.id)}`),
     categoryId: toId(row.category_id ?? row.categoryId ?? "") || undefined,
     brandId: toId(row.brand_id ?? row.brandId ?? "") || undefined,
     unitId: toId(row.unit_id ?? row.unitId ?? "") || undefined,
-    price: Number(firstStock.productSalePrice ?? firstStock.salePrice ?? row.productSalePrice ?? row.salePrice ?? row.price ?? 0),
-    costPrice: Number(firstStock.productPurchasePrice ?? firstStock.purchasePrice ?? row.productPurchasePrice ?? row.purchasePrice ?? row.costPrice ?? 0),
-    retailPrice: Number(firstStock.productSalePrice ?? firstStock.salePrice ?? row.productSalePrice ?? row.retailPrice ?? row.price ?? 0),
-    wholesalePrice: Number(firstStock.productWholeSalePrice ?? firstStock.wholesalePrice ?? row.productWholeSalePrice ?? row.wholesalePrice ?? row.price ?? 0),
-    dealerPrice: Number(firstStock.productDealerPrice ?? firstStock.dealerPrice ?? row.productDealerPrice ?? row.dealerPrice ?? row.price ?? 0),
+    vatId: toId(row.vat_id ?? row.vatId ?? "") || undefined,
+    stockId: firstStock.id ? toId(firstStock.id) : undefined,
+    price: salePrice,
+    costPrice,
+    retailPrice,
+    wholesalePrice,
+    dealerPrice,
     stock: Number(stockCount ?? 0),
-    alertQty: Number(row.alert_qty ?? row.alertQty ?? 10),
-    expiryDate: firstStock.expire_date ? String(firstStock.expire_date) : undefined,
-    image: row.productPicture ? String(row.productPicture) : row.image ? String(row.image) : undefined,
+    alertQty: Number(row.alert_qty ?? row.alertQty ?? row.alert_quantity ?? 10),
+    profitMargin: toNumber(row.profit_percent ?? row.profitMargin ?? firstStock.profit_percent ?? 0),
+    manufacturer: row.productManufacturer ? String(row.productManufacturer) : row.manufacturer ? String(row.manufacturer) : undefined,
+    expiryDate: firstStock.expire_date ? String(firstStock.expire_date) : row.expire_date ? String(row.expire_date) : undefined,
+    image: (() => {
+      const img = row.productPicture ?? row.product_picture ?? row.picture ?? row.image ?? undefined;
+      return img ? String(img) : undefined;
+    })(),
   };
 }
 
@@ -129,6 +210,7 @@ function mapSaleItem(row: Record<string, unknown>) {
     quantity: Number(row.quantities ?? 0),
     unitPrice: Number(row.price ?? 0),
     discount: Number(row.discount ?? 0),
+    stockId: toId(row.stock_id) || undefined,
   };
 }
 
@@ -234,6 +316,62 @@ function mapPurchaseReturn(row: Record<string, unknown>): PurchaseReturn {
   };
 }
 
+function mapAttendance(row: Record<string, unknown>): Attendance {
+  const employee = row.employee as Record<string, unknown> | undefined;
+  return {
+    id: toId(row.id),
+    employeeId: toId(row.employee_id ?? employee?.id),
+    employeeName: String(employee?.name ?? row.employee_name ?? ""),
+    date: String(row.date ?? row.attendance_date ?? row.created_at ?? "").split(" ")[0],
+    checkIn: String(row.check_in ?? row.checkIn ?? row.in_time ?? ""),
+    checkOut: String(row.check_out ?? row.checkOut ?? row.out_time ?? ""),
+    status: (() => {
+      const s = String(row.status ?? "Present").toLowerCase();
+      if (s === "late") return "Late";
+      if (s === "absent") return "Absent";
+      return "Present";
+    })(),
+  };
+}
+
+function mapPayroll(row: Record<string, unknown>): Payroll {
+  const employee = row.employee as Record<string, unknown> | undefined;
+  return {
+    id: toId(row.id),
+    employeeId: toId(row.employee_id ?? employee?.id),
+    employeeName: String(employee?.name ?? row.employee_name ?? ""),
+    month: String(row.month ?? row.salary_month ?? ""),
+    basicSalary: Number(row.basic_salary ?? row.basicSalary ?? 0),
+    bonus: Number(row.bonus ?? 0),
+    deduction: Number(row.deduction ?? 0),
+    netSalary: Number(row.net_salary ?? row.netSalary ?? row.total_salary ?? 0),
+    status: String(row.status ?? "").toLowerCase() === "paid" ? "Paid" : "Unpaid",
+    paidDate: row.paid_date ? String(row.paid_date) : undefined,
+  };
+}
+
+function mapLeave(row: Record<string, unknown>): Leave {
+  const employee = row.employee as Record<string, unknown> | undefined;
+  const leaveType = row.leave_type as Record<string, unknown> | undefined;
+  return {
+    id: toId(row.id),
+    employeeId: toId(row.employee_id ?? employee?.id),
+    employeeName: String(employee?.name ?? row.employee_name ?? ""),
+    departmentName: employee?.department ? String((employee.department as Record<string, unknown>)?.name ?? "") : undefined,
+    leaveTypeId: toId(row.leave_type_id ?? leaveType?.id),
+    leaveTypeName: String(leaveType?.name ?? row.leave_type_name ?? ""),
+    startDate: String(row.start_date ?? row.from_date ?? "").split(" ")[0],
+    endDate: String(row.end_date ?? row.to_date ?? "").split(" ")[0],
+    reason: String(row.reason ?? row.note ?? ""),
+    status: (() => {
+      const s = String(row.status ?? "Pending").toLowerCase();
+      if (s === "approved") return "Approved";
+      if (s === "rejected") return "Rejected";
+      return "Pending";
+    })(),
+  };
+}
+
 function mapExpenseCategory(row: Record<string, unknown>): ExpenseCategory {
   return {
     id: toId(row.id),
@@ -278,77 +416,225 @@ function mapIncome(row: Record<string, unknown>): Income {
   };
 }
 
+// Remember which URL variant succeeded for each resource label so subsequent
+// syncs skip the fallback chain and go straight to the working endpoint.
+const winningUrl = new Map<string, string>();
+let lastSyncAt = 0;
+const MIN_SYNC_INTERVAL_MS = 25_000;
+
 export async function syncLiveBusinessData(): Promise<void> {
+  // Skip entirely when using an offline/demo session — no real token to send
+  if (tokenStorage.isOffline() || !tokenStorage.get()) {
+    setSyncStatus("offline");
+    return;
+  }
+
   const isOnline = store.getBusinessProfile().isOnline;
   if (!isOnline) {
     setSyncStatus("offline");
     return;
   }
 
+  const now = Date.now();
+  if (now - lastSyncAt < MIN_SYNC_INTERVAL_MS) return;
+  lastSyncAt = now;
+
   setSyncStatus("syncing");
 
+  try { await _runSync(); } catch { /* all errors are absorbed — local data stays intact */ }
+}
+
+// Inner function contains all the actual sync work.
+// Errors escape to the outer wrapper which silently discards them.
+async function _runSync(): Promise<void> {
   try {
     const profile = await apiGetProfile();
     setCurrentRole(profile.role || "staff");
+    setVisibility(profile.visibility);
+    if (profile.id) store.setCurrentUserId(profile.id);
   } catch {
     // Keep previously known local role if profile endpoint fails.
   }
 
-  const tasks = await Promise.allSettled([
-    apiGet<unknown>("/categories"),
-    apiGet<unknown>("/brands"),
-    apiGet<unknown>("/products"),
-    apiGet<unknown>("/parties"),
-    apiGet<unknown>("/sales"),
-    apiGet<unknown>("/purchase"),
-    apiGet<unknown>("/sales-return"),
-    apiGet<unknown>("/purchases-return"),
-    apiGet<unknown>("/expense-categories"),
-    apiGet<unknown>("/expenses"),
-    apiGet<unknown>("/income-categories"),
-    apiGet<unknown>("/incomes"),
+  // Prefer business-scoped endpoints first, then fall back to legacy routes.
+  // On the first call all variants are tried; winning URL is cached for speed.
+  async function fetchFirstSuccessful(label: string, variants: string[], requireNonEmpty = false): Promise<unknown | null> {
+    const cached = winningUrl.get(label);
+    const orderedVariants = cached
+      ? [cached, ...variants.filter((v) => v !== cached)]
+      : variants;
+
+    for (const path of orderedVariants) {
+      try {
+        const raw = path.startsWith("/business/")
+          ? await apiGetWeb<unknown>(path)
+          : await apiGet<unknown>(path);
+        const rows = asArray<Record<string, unknown>>(raw);
+        if (requireNonEmpty && rows.length === 0) {
+          continue;
+        }
+        winningUrl.set(label, path);
+        return raw;
+      } catch {
+        // Try next variant.
+      }
+    }
+    return null;
+  }
+
+  const [
+    productsPayload,
+    categoriesPayload,
+    brandsPayload,
+    unitsPayload,
+    vatsPayload,
+    partiesPayload,
+    customersPayload,
+    suppliersPayload,
+    purchasesPayload,
+    tasks,
+  ] = await Promise.all([
+    fetchFirstSuccessful("products", [
+      "/products?per_page=500",
+      "/products?paginate=false",
+      "/products?include=stocks&per_page=500",
+      "/products?with_stocks=1&per_page=500",
+      "/products",
+    ], true),
+    fetchFirstSuccessful("categories", [
+      "/business/categories?per_page=500",
+      "/business/categories",
+      "/categories?per_page=500",
+      "/categories",
+    ]),
+    fetchFirstSuccessful("brands", [
+      "/business/brands?per_page=500",
+      "/business/brands",
+      "/brands?per_page=500",
+      "/brands",
+    ]),
+    fetchFirstSuccessful("units", [
+      "/business/units?per_page=500",
+      "/business/units",
+      "/units?per_page=500",
+      "/units",
+    ]),
+    fetchFirstSuccessful("vats", [
+      "/vats?per_page=500",
+      "/vats",
+    ]),
+    fetchFirstSuccessful("parties", [
+      "/business/parties?per_page=500",
+      "/business/parties",
+      "/parties?per_page=500",
+      "/parties",
+    ]),
+    fetchFirstSuccessful("customers", [
+      "/business/customers?per_page=500",
+      "/business/customers",
+      "/customers?per_page=500",
+      "/customers",
+    ]),
+    fetchFirstSuccessful("suppliers", [
+      "/business/suppliers?per_page=500",
+      "/business/suppliers",
+      "/suppliers?per_page=500",
+      "/suppliers",
+    ]),
+    fetchFirstSuccessful("purchases", [
+      "/business/purchases?per_page=500",
+      "/business/purchase?per_page=500",
+      "/business/purchases",
+      "/business/purchase",
+      "/purchases?per_page=500",
+      "/purchase?per_page=500",
+      "/purchases",
+      "/purchase",
+    ]),
+    Promise.allSettled([
+      apiGet<unknown>("/sales"),
+      apiGet<unknown>("/sales-return"),
+      apiGet<unknown>("/purchases-return"),
+      apiGet<unknown>("/expense-categories"),
+      apiGet<unknown>("/expenses"),
+      apiGet<unknown>("/income-categories"),
+      apiGet<unknown>("/incomes"),
+      apiGet<unknown>("/hrm/attendances?per_page=500"),
+      apiGet<unknown>("/hrm/payrolls?per_page=500"),
+      apiGet<unknown>("/hrm/leaves?per_page=500"),
+    ]),
   ]);
 
   const [
-    categoriesRes,
-    brandsRes,
-    productsRes,
-    partiesRes,
     salesRes,
-    purchasesRes,
     saleReturnsRes,
     purchaseReturnsRes,
     expenseCategoriesRes,
     expensesRes,
     incomeCategoriesRes,
     incomesRes,
+    attendancesRes,
+    payrollsRes,
+    leavesRes,
   ] = tasks;
 
-  if (categoriesRes.status === "fulfilled") {
-    store.saveCategories(asArray<Record<string, unknown>>(categoriesRes.value).map(mapCategory));
+  if (categoriesPayload !== null) {
+    store.saveCategories(asArray<Record<string, unknown>>(categoriesPayload).map(mapCategory));
   }
 
-  if (brandsRes.status === "fulfilled") {
-    store.saveBrands(asArray<Record<string, unknown>>(brandsRes.value).map(mapBrand));
+  if (brandsPayload !== null) {
+    store.saveBrands(asArray<Record<string, unknown>>(brandsPayload).map(mapBrand));
   }
 
-  if (productsRes.status === "fulfilled") {
-    store.saveProducts(asArray<Record<string, unknown>>(productsRes.value).map(mapProduct));
+  if (unitsPayload !== null) {
+    store.saveUnits(asArray<Record<string, unknown>>(unitsPayload).map(mapUnit));
   }
 
-  if (partiesRes.status === "fulfilled") {
-    const parties = asArray<Record<string, unknown>>(partiesRes.value);
+  if (vatsPayload !== null) {
+    const vatRows = asArray<Record<string, unknown>>(vatsPayload).map((row) => ({
+      id: toId(row.id),
+      name: String(row.name ?? row.vatName ?? "VAT"),
+      rate: Number(row.rate ?? 0),
+      status: (String(row.status ?? "Active") === "1" || String(row.status ?? "").toLowerCase() === "active" ? "Active" : "Inactive") as "Active" | "Inactive",
+    }));
+    if (vatRows.length) store.saveVatRates(vatRows);
+  }
+
+  if (productsPayload !== null) {
+    store.saveProducts(asArray<Record<string, unknown>>(productsPayload).map(mapProduct));
+  }
+
+  if (partiesPayload !== null) {
+    const parties = asArray<Record<string, unknown>>(partiesPayload);
     store.saveParties(parties.map(mapParty));
     store.saveCustomers(parties.filter((p) => String(p.type) !== "Supplier").map(mapCustomer));
     store.saveSuppliers(parties.filter((p) => String(p.type) === "Supplier").map(mapSupplier));
+  } else {
+    const customerRows = customersPayload ? asArray<Record<string, unknown>>(customersPayload) : [];
+    const supplierRows = suppliersPayload ? asArray<Record<string, unknown>>(suppliersPayload) : [];
+
+    if (customersPayload !== null) {
+      store.saveCustomers(customerRows.map(mapCustomer));
+    }
+
+    if (suppliersPayload !== null) {
+      store.saveSuppliers(supplierRows.map(mapSupplier));
+    }
+
+    if (customerRows.length || supplierRows.length) {
+      store.saveParties([
+        ...customerRows.map((row) => mapParty({ ...row, type: row.type ?? "Retailer" })),
+        ...supplierRows.map((row) => mapParty({ ...row, type: "Supplier" })),
+      ]);
+    }
   }
 
   if (salesRes.status === "fulfilled") {
     store.saveSales(asArray<Record<string, unknown>>(salesRes.value).map(mapSale));
   }
 
-  if (purchasesRes.status === "fulfilled") {
-    store.savePurchases(asArray<Record<string, unknown>>(purchasesRes.value).map(mapPurchase));
+  if (purchasesPayload !== null) {
+    store.savePurchases(asArray<Record<string, unknown>>(purchasesPayload).map(mapPurchase));
   }
 
   if (saleReturnsRes.status === "fulfilled") {
@@ -375,6 +661,31 @@ export async function syncLiveBusinessData(): Promise<void> {
     store.saveIncomes(asArray<Record<string, unknown>>(incomesRes.value).map(mapIncome));
   }
 
-  const hasSuccessfulTask = tasks.some((task) => task.status === "fulfilled");
+  if (attendancesRes.status === "fulfilled") {
+    store.saveAttendance(asArray<Record<string, unknown>>(attendancesRes.value).map(mapAttendance));
+  }
+
+  if (payrollsRes.status === "fulfilled") {
+    store.savePayroll(asArray<Record<string, unknown>>(payrollsRes.value).map(mapPayroll));
+  }
+
+  if (leavesRes.status === "fulfilled") {
+    store.saveLeaves(asArray<Record<string, unknown>>(leavesRes.value).map(mapLeave));
+  }
+
+  const hasSuccessfulTask = [
+    productsPayload,
+    categoriesPayload,
+    brandsPayload,
+    unitsPayload,
+    partiesPayload,
+    customersPayload,
+    suppliersPayload,
+    purchasesPayload,
+  ].some((payload) => payload !== null) || tasks.some((task) => task.status === "fulfilled");
   setSyncStatus(hasSuccessfulTask ? "live" : "fallback");
+
+  // Notify all pages to auto-refresh their data
+  emitStoreUpdate();
 }
+

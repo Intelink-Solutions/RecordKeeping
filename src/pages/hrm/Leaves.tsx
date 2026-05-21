@@ -2,8 +2,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CrudListPage from "@/components/CrudListPage";
-import { store, Leave, Employee, LeaveType } from "@/lib/store";
+import { store, Leave, Employee, LeaveType, Department } from "@/lib/store";
 import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
+import { apiCreateHrmResourceForm, apiUpdateHrmResourceForm, apiDeleteHrmResource } from "@/lib/api";
 
 const Leaves = () => {
   const { items, saveItems } = useHrmLiveList<Leave>({
@@ -24,13 +25,31 @@ const Leaves = () => {
     localSave: (next) => store.saveLeaveTypes(next),
   });
 
+  const { items: departments } = useHrmLiveList<Department>({
+    resource: "departments",
+    localGet: () => store.getDepartments(),
+    localSave: (next) => store.saveDepartments(next),
+  });
+
+  const getDepartmentName = (employeeId: string) => {
+    const emp = employees.find(e => e.id === employeeId);
+    if (!emp) return "";
+    const dept = departments.find(d => d.id === emp.departmentId);
+    return dept?.name || "";
+  };
+
   return (
     <CrudListPage<Leave>
       title="Leave List"
       items={items}
       onSave={saveItems}
+      apiResource="leaves"
+      onApiCreate={(data) => apiCreateHrmResourceForm<Leave>("leaves", data as Record<string, unknown>)}
+      onApiUpdate={(id, data) => apiUpdateHrmResourceForm<Leave>("leaves", id, data as Record<string, unknown>)}
+      onApiDelete={(id) => apiDeleteHrmResource("leaves", id)}
       columns={[
         { key: "employeeName", label: "Employee" },
+        { key: "departmentName", label: "Department" },
         { key: "leaveTypeName", label: "Leave Type" },
         { key: "startDate", label: "Start" },
         { key: "endDate", label: "End" },
@@ -42,12 +61,19 @@ const Leaves = () => {
             const emp = employees.find(e => e.id === v);
             onChange("employeeId", v);
             onChange("employeeName", emp?.name || "");
+            onChange("departmentName", getDepartmentName(v));
           }}>
             <SelectTrigger><SelectValue placeholder="Select Employee" /></SelectTrigger>
             <SelectContent>
-              {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name} ({e.employeeId})</SelectItem>)}
+              {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
             </SelectContent>
           </Select>
+          <Input
+            placeholder="Department"
+            value={item.departmentName || getDepartmentName(item.employeeId || "")}
+            readOnly
+            className="bg-muted"
+          />
           <Select value={item.leaveTypeId || ""} onValueChange={(v) => {
             const lt = leaveTypes.find(l => l.id === v);
             onChange("leaveTypeId", v);
@@ -79,7 +105,15 @@ const Leaves = () => {
           </Select>
         </>
       )}
-      createDefaults={() => ({ employeeId: "", employeeName: "", leaveTypeId: "", leaveTypeName: "", startDate: "", endDate: "", reason: "", status: "Pending" as const })}
+      createDefaults={() => ({ employeeId: "", employeeName: "", departmentName: "", leaveTypeId: "", leaveTypeName: "", startDate: "", endDate: "", reason: "", status: "Pending" as const })}
+      validate={(item) => {
+        if (!item.employeeId) return "Please select an employee.";
+        if (!item.leaveTypeId) return "Please select a leave type.";
+        if (!item.startDate) return "Start date is required.";
+        if (!item.endDate) return "End date is required.";
+        if (item.startDate && item.endDate && item.endDate < item.startDate) return "End date must be on or after start date.";
+        return null;
+      }}
       searchKey="employeeName"
       displayName="Leave"
     />

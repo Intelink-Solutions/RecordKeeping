@@ -9,6 +9,8 @@ try {
     const parsed = JSON.parse(bp);
     if (parsed.darkMode) document.documentElement.classList.add("dark");
   }
-} catch {}
+} catch {
+  // Ignore invalid persisted profile payload.
+}
 
 createRoot(document.getElementById("root")!).render(<App />);

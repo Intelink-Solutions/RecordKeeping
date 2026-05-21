@@ -9,9 +9,9 @@ export const SECURITY_PREFS_KEY = "pos_security_prefs";
 export const SECURITY_PREFS_UPDATED_EVENT = "pos_security_prefs_updated";
 
 export const defaultSecurityPrefs: SecurityPrefs = {
-  appLock: false,
-  biometric: false,
-  hideAmounts: false,
+  appLock: true,
+  biometric: true,
+  hideAmounts: true,
   autoLock: "5m",
 };
 

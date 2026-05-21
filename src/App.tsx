@@ -1,162 +1,196 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+
+// Critical path — always bundled (tiny, needed immediately)
 import Index from "./pages/Index";
 import Splash from "./pages/Splash";
 import Login from "./pages/Login";
 import ProtectedRoute from "./components/ProtectedRoute";
-import Dashboard from "./pages/Dashboard";
-import Products from "./pages/Products";
-import Categories from "./pages/Categories";
-import Brands from "./pages/Brands";
-import StockList from "./pages/StockList";
-import Customers from "./pages/Customers";
-import Suppliers from "./pages/Suppliers";
-import DueList from "./pages/DueList";
-import AddSale from "./pages/AddSale";
-import SalesList from "./pages/SalesList";
-import SaleReturn from "./pages/SaleReturn";
-import SaleReturnList from "./pages/SaleReturnList";
-import AddPurchase from "./pages/AddPurchase";
-import PurchaseList from "./pages/PurchaseList";
-import PurchaseReturn from "./pages/PurchaseReturn";
-import PurchaseReturnList from "./pages/PurchaseReturnList";
-import Finance from "./pages/Finance";
-import Expenses from "./pages/Expenses";
-import IncomePage from "./pages/IncomePage";
-import ExpenseCategories from "./pages/ExpenseCategories";
-import IncomeCategories from "./pages/IncomeCategories";
-import LossProfit from "./pages/LossProfit";
-import Reports from "./pages/Reports";
-import Settings from "./pages/Settings";
-import UserProfile from "./pages/UserProfile";
-import Notifications from "./pages/Notifications";
+import PermissionGuard from "./components/PermissionGuard";
+import SavedOverlay from "./components/SavedOverlay";
+import MobilePushBootstrap from "./components/MobilePushBootstrap";
 import NotFound from "./pages/NotFound";
 
+// ── Lazy pages — only loaded when the user navigates there ────────────────────
+const Dashboard            = lazy(() => import("./pages/Dashboard"));
+const Products             = lazy(() => import("./pages/Products"));
+const Categories           = lazy(() => import("./pages/Categories"));
+const Brands               = lazy(() => import("./pages/Brands"));
+const Units                = lazy(() => import("./pages/Units"));
+const StockList            = lazy(() => import("./pages/StockList"));
+const Customers            = lazy(() => import("./pages/Customers"));
+const Suppliers            = lazy(() => import("./pages/Suppliers"));
+const DueList              = lazy(() => import("./pages/DueList"));
+const AddSale              = lazy(() => import("./pages/AddSale"));
+const SalesList            = lazy(() => import("./pages/SalesList"));
+const SaleReturn           = lazy(() => import("./pages/SaleReturn"));
+const SaleReturnList       = lazy(() => import("./pages/SaleReturnList"));
+const AddPurchase          = lazy(() => import("./pages/AddPurchase"));
+const PurchaseList         = lazy(() => import("./pages/PurchaseList"));
+const PurchaseReturn       = lazy(() => import("./pages/PurchaseReturn"));
+const PurchaseReturnList   = lazy(() => import("./pages/PurchaseReturnList"));
+const Finance              = lazy(() => import("./pages/Finance"));
+const Expenses             = lazy(() => import("./pages/Expenses"));
+const IncomePage           = lazy(() => import("./pages/IncomePage"));
+const ExpenseCategories    = lazy(() => import("./pages/ExpenseCategories"));
+const IncomeCategories     = lazy(() => import("./pages/IncomeCategories"));
+const LossProfit           = lazy(() => import("./pages/LossProfit"));
+const Reports              = lazy(() => import("./pages/Reports"));
+const Settings             = lazy(() => import("./pages/Settings"));
+const UserProfile          = lazy(() => import("./pages/UserProfile"));
+const Notifications        = lazy(() => import("./pages/Notifications"));
+const UserRoles            = lazy(() => import("./pages/UserRoles"));
+const ItemsPage            = lazy(() => import("./pages/ItemsPage"));
+const InventoryHistory     = lazy(() => import("./pages/InventoryHistory"));
+
 // Reports
-import SalesReport from "./pages/reports/SalesReport";
-import SaleReturnReport from "./pages/reports/SaleReturnReport";
-import PurchaseReport from "./pages/reports/PurchaseReport";
-import PurchaseReturnReport from "./pages/reports/PurchaseReturnReport";
-import SalesTaxReport from "./pages/reports/SalesTaxReport";
-import PurchaseTaxReport from "./pages/reports/PurchaseTaxReport";
-import IncomeReport from "./pages/reports/IncomeReport";
-import ExpenseReport from "./pages/reports/ExpenseReport";
-import StockReport from "./pages/reports/StockReport";
-import CustomerDueReport from "./pages/reports/CustomerDueReport";
-import SupplierDueReport from "./pages/reports/SupplierDueReport";
-import ProfitLossBill from "./pages/reports/ProfitLossBill";
-import ProfitLossProduct from "./pages/reports/ProfitLossProduct";
-import ProfitLossHistory from "./pages/reports/ProfitLossHistory";
-import TopCustomers from "./pages/reports/TopCustomers";
-import TopSuppliers from "./pages/reports/TopSuppliers";
-import TopProducts from "./pages/reports/TopProducts";
-import ProductSalesReport from "./pages/reports/ProductSalesReport";
-import ProductPurchaseReport from "./pages/reports/ProductPurchaseReport";
-import DiscountedProducts from "./pages/reports/DiscountedProducts";
-import DueTransactions from "./pages/reports/DueTransactions";
+const SalesReport          = lazy(() => import("./pages/reports/SalesReport"));
+const SaleReturnReport     = lazy(() => import("./pages/reports/SaleReturnReport"));
+const PurchaseReport       = lazy(() => import("./pages/reports/PurchaseReport"));
+const PurchaseReturnReport = lazy(() => import("./pages/reports/PurchaseReturnReport"));
+const SalesTaxReport       = lazy(() => import("./pages/reports/SalesTaxReport"));
+const PurchaseTaxReport    = lazy(() => import("./pages/reports/PurchaseTaxReport"));
+const IncomeReport         = lazy(() => import("./pages/reports/IncomeReport"));
+const ExpenseReport        = lazy(() => import("./pages/reports/ExpenseReport"));
+const StockReport          = lazy(() => import("./pages/reports/StockReport"));
+const CustomerDueReport    = lazy(() => import("./pages/reports/CustomerDueReport"));
+const SupplierDueReport    = lazy(() => import("./pages/reports/SupplierDueReport"));
+const ProfitLossBill       = lazy(() => import("./pages/reports/ProfitLossBill"));
+const ProfitLossProduct    = lazy(() => import("./pages/reports/ProfitLossProduct"));
+const ProfitLossHistory    = lazy(() => import("./pages/reports/ProfitLossHistory"));
+const TopCustomers         = lazy(() => import("./pages/reports/TopCustomers"));
+const TopSuppliers         = lazy(() => import("./pages/reports/TopSuppliers"));
+const TopProducts          = lazy(() => import("./pages/reports/TopProducts"));
+const ProductSalesReport   = lazy(() => import("./pages/reports/ProductSalesReport"));
+const ProductPurchaseReport = lazy(() => import("./pages/reports/ProductPurchaseReport"));
+const DiscountedProducts   = lazy(() => import("./pages/reports/DiscountedProducts"));
+const DueTransactions      = lazy(() => import("./pages/reports/DueTransactions"));
 
 // HRM
-import HRMIndex from "./pages/hrm/HRMIndex";
-import Departments from "./pages/hrm/Departments";
-import Designations from "./pages/hrm/Designations";
-import Shifts from "./pages/hrm/Shifts";
-import Employees from "./pages/hrm/Employees";
-import LeaveTypes from "./pages/hrm/LeaveTypes";
-import Leaves from "./pages/hrm/Leaves";
-import Holidays from "./pages/hrm/Holidays";
-import AttendanceList from "./pages/hrm/AttendanceList";
-import PayrollList from "./pages/hrm/PayrollList";
-import AttendanceReport from "./pages/hrm/AttendanceReport";
-import PayrollReport from "./pages/hrm/PayrollReport";
-import LeaveReport from "./pages/hrm/LeaveReport";
+const HRMIndex             = lazy(() => import("./pages/hrm/HRMIndex"));
+const Departments          = lazy(() => import("./pages/hrm/Departments"));
+const Designations         = lazy(() => import("./pages/hrm/Designations"));
+const Shifts               = lazy(() => import("./pages/hrm/Shifts"));
+const Employees            = lazy(() => import("./pages/hrm/Employees"));
+const LeaveTypes           = lazy(() => import("./pages/hrm/LeaveTypes"));
+const Leaves               = lazy(() => import("./pages/hrm/Leaves"));
+const Holidays             = lazy(() => import("./pages/hrm/Holidays"));
+const AttendanceList       = lazy(() => import("./pages/hrm/AttendanceList"));
+const PayrollList          = lazy(() => import("./pages/hrm/PayrollList"));
+const AttendanceReport     = lazy(() => import("./pages/hrm/AttendanceReport"));
+const PayrollReport        = lazy(() => import("./pages/hrm/PayrollReport"));
+const LeaveReport          = lazy(() => import("./pages/hrm/LeaveReport"));
 
-const queryClient = new QueryClient();
+// Lightweight fallback shown while a lazy page chunk is downloading
+const PageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="w-8 h-8 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+  </div>
+);
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: 1,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <SavedOverlay />
+      <MobilePushBootstrap />
       <BrowserRouter>
-        <Routes>
-           {/* Public routes */}
-           <Route path="/" element={<Splash />} />
-           <Route path="/login" element={<Login />} />
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/"      element={<Splash />} />
+            <Route path="/login" element={<Login />} />
 
-           {/* Protected routes — require auth token */}
-           <Route element={<ProtectedRoute />}>
-            <Route path="/home" element={<Index />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/products" element={<Products />} />
-            <Route path="/categories" element={<Categories />} />
-            <Route path="/brands" element={<Brands />} />
-            <Route path="/stock" element={<StockList />} />
-            <Route path="/customers" element={<Customers />} />
-            <Route path="/suppliers" element={<Suppliers />} />
-            <Route path="/due-list" element={<DueList />} />
-            <Route path="/add-sale" element={<AddSale />} />
-            <Route path="/sales" element={<SalesList />} />
-            <Route path="/sale-return/:saleId" element={<SaleReturn />} />
-            <Route path="/sale-returns" element={<SaleReturnList />} />
-            <Route path="/add-purchase" element={<AddPurchase />} />
-            <Route path="/purchases" element={<PurchaseList />} />
-            <Route path="/purchase-return/:purchaseId" element={<PurchaseReturn />} />
-            <Route path="/purchase-returns" element={<PurchaseReturnList />} />
-            <Route path="/finance" element={<Finance />} />
-            <Route path="/expenses" element={<Expenses />} />
-            <Route path="/income" element={<IncomePage />} />
-            <Route path="/expense-categories" element={<ExpenseCategories />} />
-            <Route path="/income-categories" element={<IncomeCategories />} />
-            <Route path="/loss-profit" element={<LossProfit />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/profile" element={<UserProfile />} />
-            <Route path="/notifications" element={<Notifications />} />
+            {/* Protected routes — require auth token */}
+            <Route element={<ProtectedRoute />}>
+              <Route path="/home"               element={<Index />} />
+              <Route path="/items"              element={<ItemsPage />} />
+              <Route path="/dashboard"          element={<Dashboard />} />
+              <Route path="/products"           element={<PermissionGuard><Products /></PermissionGuard>} />
+              <Route path="/categories"         element={<PermissionGuard><Categories /></PermissionGuard>} />
+              <Route path="/brands"             element={<PermissionGuard><Brands /></PermissionGuard>} />
+              <Route path="/units"              element={<PermissionGuard><Units /></PermissionGuard>} />
+              <Route path="/stock"              element={<PermissionGuard><StockList /></PermissionGuard>} />
+              <Route path="/inventory-history"  element={<PermissionGuard><InventoryHistory /></PermissionGuard>} />
+              <Route path="/customers"          element={<PermissionGuard><Customers /></PermissionGuard>} />
+              <Route path="/suppliers"          element={<PermissionGuard><Suppliers /></PermissionGuard>} />
+              <Route path="/due-list"           element={<PermissionGuard><DueList /></PermissionGuard>} />
+              <Route path="/add-sale"           element={<PermissionGuard><AddSale /></PermissionGuard>} />
+              <Route path="/sales"              element={<PermissionGuard><SalesList /></PermissionGuard>} />
+              <Route path="/sale-return/:saleId"     element={<PermissionGuard><SaleReturn /></PermissionGuard>} />
+              <Route path="/sale-returns"       element={<PermissionGuard><SaleReturnList /></PermissionGuard>} />
+              <Route path="/add-purchase"       element={<PermissionGuard><AddPurchase /></PermissionGuard>} />
+              <Route path="/purchases"          element={<PermissionGuard><PurchaseList /></PermissionGuard>} />
+              <Route path="/purchase-return/:purchaseId" element={<PermissionGuard><PurchaseReturn /></PermissionGuard>} />
+              <Route path="/purchase-returns"   element={<PermissionGuard><PurchaseReturnList /></PermissionGuard>} />
+              <Route path="/finance"            element={<PermissionGuard><Finance /></PermissionGuard>} />
+              <Route path="/expenses"           element={<PermissionGuard><Expenses /></PermissionGuard>} />
+              <Route path="/income"             element={<PermissionGuard><IncomePage /></PermissionGuard>} />
+              <Route path="/expense-categories" element={<PermissionGuard><ExpenseCategories /></PermissionGuard>} />
+              <Route path="/income-categories"  element={<PermissionGuard><IncomeCategories /></PermissionGuard>} />
+              <Route path="/loss-profit"        element={<PermissionGuard><LossProfit /></PermissionGuard>} />
+              <Route path="/reports"            element={<PermissionGuard><Reports /></PermissionGuard>} />
+              <Route path="/settings"           element={<PermissionGuard><Settings /></PermissionGuard>} />
+              <Route path="/user-roles"         element={<PermissionGuard><UserRoles /></PermissionGuard>} />
+              <Route path="/profile"            element={<UserProfile />} />
+              <Route path="/notifications"      element={<Notifications />} />
 
-            {/* Report Routes */}
-            <Route path="/report/sales" element={<SalesReport />} />
-            <Route path="/report/sale-returns" element={<SaleReturnReport />} />
-            <Route path="/report/purchases" element={<PurchaseReport />} />
-            <Route path="/report/purchase-returns" element={<PurchaseReturnReport />} />
-            <Route path="/report/sales-tax" element={<SalesTaxReport />} />
-            <Route path="/report/purchase-tax" element={<PurchaseTaxReport />} />
-            <Route path="/report/income" element={<IncomeReport />} />
-            <Route path="/report/expenses" element={<ExpenseReport />} />
-            <Route path="/report/stock" element={<StockReport />} />
-            <Route path="/report/customer-due" element={<CustomerDueReport />} />
-            <Route path="/report/supplier-due" element={<SupplierDueReport />} />
-            <Route path="/report/profit-loss-bill" element={<ProfitLossBill />} />
-            <Route path="/report/profit-loss-product" element={<ProfitLossProduct />} />
-            <Route path="/report/profit-loss-history" element={<ProfitLossHistory />} />
-            <Route path="/report/top-customers" element={<TopCustomers />} />
-            <Route path="/report/top-suppliers" element={<TopSuppliers />} />
-            <Route path="/report/top-products" element={<TopProducts />} />
-            <Route path="/report/product-sales" element={<ProductSalesReport />} />
-            <Route path="/report/product-purchases" element={<ProductPurchaseReport />} />
-            <Route path="/report/discounted" element={<DiscountedProducts />} />
-            <Route path="/report/due-transactions" element={<DueTransactions />} />
+              {/* Report Routes */}
+              <Route path="/report/sales"             element={<PermissionGuard><SalesReport /></PermissionGuard>} />
+              <Route path="/report/sale-returns"      element={<PermissionGuard><SaleReturnReport /></PermissionGuard>} />
+              <Route path="/report/purchases"         element={<PermissionGuard><PurchaseReport /></PermissionGuard>} />
+              <Route path="/report/purchase-returns"  element={<PermissionGuard><PurchaseReturnReport /></PermissionGuard>} />
+              <Route path="/report/sales-tax"         element={<PermissionGuard><SalesTaxReport /></PermissionGuard>} />
+              <Route path="/report/purchase-tax"      element={<PermissionGuard><PurchaseTaxReport /></PermissionGuard>} />
+              <Route path="/report/income"            element={<PermissionGuard><IncomeReport /></PermissionGuard>} />
+              <Route path="/report/expenses"          element={<PermissionGuard><ExpenseReport /></PermissionGuard>} />
+              <Route path="/report/stock"             element={<PermissionGuard><StockReport /></PermissionGuard>} />
+              <Route path="/report/customer-due"      element={<PermissionGuard><CustomerDueReport /></PermissionGuard>} />
+              <Route path="/report/supplier-due"      element={<PermissionGuard><SupplierDueReport /></PermissionGuard>} />
+              <Route path="/report/profit-loss-bill"     element={<PermissionGuard><ProfitLossBill /></PermissionGuard>} />
+              <Route path="/report/profit-loss-product"  element={<PermissionGuard><ProfitLossProduct /></PermissionGuard>} />
+              <Route path="/report/profit-loss-history"  element={<PermissionGuard><ProfitLossHistory /></PermissionGuard>} />
+              <Route path="/report/top-customers"     element={<PermissionGuard><TopCustomers /></PermissionGuard>} />
+              <Route path="/report/top-suppliers"     element={<PermissionGuard><TopSuppliers /></PermissionGuard>} />
+              <Route path="/report/top-products"      element={<PermissionGuard><TopProducts /></PermissionGuard>} />
+              <Route path="/report/product-sales"     element={<PermissionGuard><ProductSalesReport /></PermissionGuard>} />
+              <Route path="/report/product-purchases" element={<PermissionGuard><ProductPurchaseReport /></PermissionGuard>} />
+              <Route path="/report/discounted"        element={<PermissionGuard><DiscountedProducts /></PermissionGuard>} />
+              <Route path="/report/due-transactions"  element={<PermissionGuard><DueTransactions /></PermissionGuard>} />
 
-            {/* HRM Routes */}
-            <Route path="/hrm" element={<HRMIndex />} />
-            <Route path="/hrm/departments" element={<Departments />} />
-            <Route path="/hrm/designations" element={<Designations />} />
-            <Route path="/hrm/shifts" element={<Shifts />} />
-            <Route path="/hrm/employees" element={<Employees />} />
-            <Route path="/hrm/leave-types" element={<LeaveTypes />} />
-            <Route path="/hrm/leaves" element={<Leaves />} />
-            <Route path="/hrm/holidays" element={<Holidays />} />
-            <Route path="/hrm/attendance" element={<AttendanceList />} />
-            <Route path="/hrm/payroll" element={<PayrollList />} />
-            <Route path="/hrm/attendance-report" element={<AttendanceReport />} />
-            <Route path="/hrm/payroll-report" element={<PayrollReport />} />
-            <Route path="/hrm/leave-report" element={<LeaveReport />} />
-           </Route>
+              {/* HRM Routes */}
+              <Route path="/hrm"                    element={<PermissionGuard><HRMIndex /></PermissionGuard>} />
+              <Route path="/hrm/departments"        element={<PermissionGuard><Departments /></PermissionGuard>} />
+              <Route path="/hrm/designations"       element={<PermissionGuard><Designations /></PermissionGuard>} />
+              <Route path="/hrm/shifts"             element={<PermissionGuard><Shifts /></PermissionGuard>} />
+              <Route path="/hrm/employees"          element={<PermissionGuard><Employees /></PermissionGuard>} />
+              <Route path="/hrm/leave-types"        element={<PermissionGuard><LeaveTypes /></PermissionGuard>} />
+              <Route path="/hrm/leaves"             element={<PermissionGuard><Leaves /></PermissionGuard>} />
+              <Route path="/hrm/holidays"           element={<PermissionGuard><Holidays /></PermissionGuard>} />
+              <Route path="/hrm/attendance"         element={<PermissionGuard><AttendanceList /></PermissionGuard>} />
+              <Route path="/hrm/payroll"            element={<PermissionGuard><PayrollList /></PermissionGuard>} />
+              <Route path="/hrm/attendance-report"  element={<PermissionGuard><AttendanceReport /></PermissionGuard>} />
+              <Route path="/hrm/payroll-report"     element={<PermissionGuard><PayrollReport /></PermissionGuard>} />
+              <Route path="/hrm/leave-report"       element={<PermissionGuard><LeaveReport /></PermissionGuard>} />
+            </Route>
 
-           <Route path="*" element={<NotFound />} />
-        </Routes>
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Suspense>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

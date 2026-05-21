@@ -7,28 +7,41 @@ import { store } from "@/lib/store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { apiCreateIncomeCategory, apiDeleteIncomeCategory } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
+import { useLiveData, showSaved } from "@/hooks/use-live-data";
 
 const IncomeCategories = () => {
   const { toast } = useToast();
-  const [categories, setCategories] = useState(store.getIncomeCategories());
+  const categories = useLiveData(() => store.getIncomeCategories());
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
   const debouncedSearch = useDebounce(search);
 
   const filtered = categories.filter(c => c.name.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
-  const add = () => {
+  const add = async () => {
     if (!name.trim()) return;
-    const updated = [...categories, { id: store.nextId(), name: name.trim(), description: desc }];
-    setCategories(updated); store.saveIncomeCategories(updated);
-    setName(""); setDesc(""); setShowAdd(false); toast({ title: "Added!" });
+    setSaving(true);
+    try {
+      await apiCreateIncomeCategory(name.trim());
+      await syncLiveBusinessData();
+      setName(""); setDesc(""); setShowAdd(false); showSaved("Added!");
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to add", variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
-  const deleteItem = (id: string) => {
-    const updated = categories.filter(c => c.id !== id);
-    setCategories(updated); store.saveIncomeCategories(updated);
+  const deleteItem = async (id: string) => {
+    try {
+      await apiDeleteIncomeCategory(id);
+      await syncLiveBusinessData();
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to delete", variant: "destructive" });
+    }
   };
 
   return (
@@ -45,7 +58,7 @@ const IncomeCategories = () => {
       </div>
       <button onClick={() => setShowAdd(true)} className="fixed bottom-24 right-5 w-14 h-14 bg-primary text-primary-foreground rounded-full shadow-xl flex items-center justify-center"><Plus size={24} /></button>
       <Dialog open={showAdd} onOpenChange={setShowAdd}><DialogContent><DialogHeader><DialogTitle>Add Income Category</DialogTitle></DialogHeader>
-        <div className="space-y-3"><Input placeholder="Name *" value={name} onChange={e => setName(e.target.value)} /><Input placeholder="Description" value={desc} onChange={e => setDesc(e.target.value)} /><button onClick={add} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Save</button></div>
+        <div className="space-y-3"><Input placeholder="Name *" value={name} onChange={e => setName(e.target.value)} /><Input placeholder="Description" value={desc} onChange={e => setDesc(e.target.value)} /><button onClick={add} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Saving..." : "Save"}</button></div>
       </DialogContent></Dialog>
       <BottomNav />
     </div>

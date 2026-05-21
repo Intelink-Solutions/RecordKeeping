@@ -7,9 +7,11 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/currency";
+import { useLiveData } from "@/hooks/use-live-data";
+import { getImageUrl } from "@/lib/image-utils";
 
 const StockList = () => {
-  const products = store.getProducts();
+  const products = useLiveData(() => store.getProducts());
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
   const [view, setView] = useState("all");
@@ -46,6 +48,7 @@ const StockList = () => {
         </div>
         {filtered.map(p => (
           <div key={p.id} className="bg-card rounded-xl p-3.5 border border-border flex items-center gap-3">
+            {(() => { const img = getImageUrl(p.image); return img ? <img src={img} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" /> : <div className="w-10 h-10 rounded-lg bg-accent flex items-center justify-center text-xs font-bold text-muted-foreground flex-shrink-0">{p.name.slice(0,2).toUpperCase()}</div>; })()}
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm truncate">{p.name}</p>
               <p className="text-[11px] text-muted-foreground">{p.code}</p>

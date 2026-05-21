@@ -9,31 +9,48 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/currency";
 import { useDebounce } from "@/hooks/use-debounce";
+import { apiCreateIncome } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
+import { useLiveData, showSaved, emitStoreUpdate } from "@/hooks/use-live-data";
 
 const IncomePage = () => {
   const { toast } = useToast();
-  const incomeCategories = store.getIncomeCategories();
-  const [incomes, setIncomes] = useState(store.getIncomes());
+  const incomeCategories = useLiveData(() => store.getIncomeCategories());
+  const incomes = useLiveData(() => store.getIncomes());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
   const [form, setForm] = useState({ categoryId: "", amount: "", description: "", paymentType: "Cash" as Income["paymentType"] });
+  const [saving, setSaving] = useState(false);
 
   const filtered = incomes.filter(i => i.description.toLowerCase().includes(debouncedSearch.toLowerCase()) || i.categoryName.toLowerCase().includes(debouncedSearch.toLowerCase()));
   const total = filtered.reduce((s, i) => s + i.amount, 0);
 
-  const add = () => {
+  const add = async () => {
     if (!form.categoryId || !form.amount) return;
-    const cat = incomeCategories.find(c => c.id === form.categoryId);
-    const updated = [{ id: store.nextId(), date: new Date().toISOString().split("T")[0], categoryId: form.categoryId, categoryName: cat?.name || "", amount: Number(form.amount), description: form.description, paymentType: form.paymentType }, ...incomes];
-    setIncomes(updated); store.saveIncomes(updated);
-    setForm({ categoryId: "", amount: "", description: "", paymentType: "Cash" }); setShowAdd(false);
-    toast({ title: "Income added!" });
+    setSaving(true);
+    try {
+      const amount = Number(form.amount);
+      await apiCreateIncome({
+        income_category_id: form.categoryId,
+        amount,
+        incomeFor: form.description || undefined,
+        note: form.description || undefined,
+        payments: [{ type: form.paymentType.toLowerCase(), amount }],
+      });
+      await syncLiveBusinessData();
+      setForm({ categoryId: "", amount: "", description: "", paymentType: "Cash" }); setShowAdd(false);
+      showSaved("Income added!");
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to add income", variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
   const deleteItem = (id: string) => {
+    // Backend incomes endpoint only supports index+store (no delete)
     const updated = incomes.filter(i => i.id !== id);
-    setIncomes(updated); store.saveIncomes(updated);
+    store.saveIncomes(updated);
+    emitStoreUpdate();
   };
 
   return (
@@ -62,7 +79,7 @@ const IncomePage = () => {
             <Input type="number" placeholder="Amount *" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
             <Input placeholder="Description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
             <Select value={form.paymentType} onValueChange={v => setForm({ ...form, paymentType: v as Income["paymentType"] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Bank">Bank</SelectItem><SelectItem value="Cheque">Cheque</SelectItem></SelectContent></Select>
-            <button onClick={add} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Save</button>
+            <button onClick={add} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Saving..." : "Save"}</button>
           </div>
         </DialogContent>
       </Dialog>

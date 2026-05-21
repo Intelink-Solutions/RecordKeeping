@@ -1,32 +1,52 @@
+import { useEffect, useState } from "react";
 import ReportPage from "@/components/ReportPage";
-import { store } from "@/lib/store";
+import { store, Payroll } from "@/lib/store";
+import { apiListHrmResource } from "@/lib/api";
 import { formatCurrency } from "@/lib/currency";
 
 const PayrollReport = () => {
-  const payroll = store.getPayroll();
-  const totalPaid = payroll.filter(p => p.status === "Paid").reduce((s, p) => s + p.netSalary, 0);
-  const totalUnpaid = payroll.filter(p => p.status === "Unpaid").reduce((s, p) => s + p.netSalary, 0);
+  const [payroll, setPayroll] = useState<Payroll[]>(store.getPayroll());
+
+  useEffect(() => {
+    if (!store.getBusinessProfile().isOnline) return;
+    apiListHrmResource<Payroll>("payrolls").then((remote) => {
+      if (remote.length > 0) {
+        setPayroll(remote);
+        store.savePayroll(remote);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const totalAmount = payroll.reduce((s, p) => s + (p.amount || 0), 0);
+  const byType = payroll.reduce<Record<string, number>>((acc, p) => {
+    const t = p.paymentType || "Other";
+    acc[t] = (acc[t] || 0) + (p.amount || 0);
+    return acc;
+  }, {});
+
+  const data = payroll as unknown as Record<string, unknown>[];
 
   return (
     <ReportPage
       title="Payroll Report"
-      data={payroll}
+      data={data}
       columns={[
         { key: "employeeName", label: "Employee" },
-        { key: "month", label: "Month" },
-        { key: "basicSalary", label: "Basic", render: (p) => <span>{formatCurrency(p.basicSalary)}</span> },
-        { key: "bonus", label: "Bonus", render: (p) => <span>{formatCurrency(p.bonus)}</span> },
-        { key: "deduction", label: "Deduct", render: (p) => <span>{formatCurrency(p.deduction)}</span> },
-        { key: "netSalary", label: "Net", render: (p) => <span className="font-semibold">{formatCurrency(p.netSalary)}</span> },
-        { key: "status", label: "Status", render: (p) => (
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${p.status === "Paid" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{p.status}</span>
+        { key: "month",        label: "Month" },
+        { key: "paymentYear",  label: "Year" },
+        { key: "date",         label: "Date" },
+        { key: "amount", label: "Amount", render: (p) => (
+          <span className="font-semibold">{formatCurrency((p.amount as number) || 0)}</span>
         )},
+        { key: "paymentType", label: "Type" },
       ]}
       summaryCards={[
-        { label: "Total Paid", value: formatCurrency(totalPaid), color: "#27ae60" },
-        { label: "Total Unpaid", value: formatCurrency(totalUnpaid), color: "#e74c3c" },
+        { label: "Total Paid", value: formatCurrency(totalAmount),          color: "#27ae60" },
+        { label: "Cash",       value: formatCurrency(byType["Cash"] || 0),  color: "#2980b9" },
+        { label: "Bank",       value: formatCurrency(byType["Bank"] || 0),  color: "#8e44ad" },
       ]}
-      searchKeys={["employeeName"]}
+      searchKeys={["employeeName", "paymentType"]}
+      dateKey="date"
     />
   );
 };

@@ -1,8 +1,10 @@
 import {
   ShoppingCart, Users, ShoppingBag, Package, ListChecks, BarChart3,
   FileText, TrendingUp, Wallet, Receipt, DollarSign, CreditCard,
-  UserCheck, Truck, Tags, BookOpen, Landmark, Users2, Bell, UserCircle
+  UserCheck, Truck, Tags, BookOpen, Ruler, Landmark, Bell, UserCircle, ShieldCheck,
+  Briefcase, Clock, CalendarDays, CalendarOff, ClipboardList, History
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import MenuCard from "@/components/MenuCard";
 import BottomNav from "@/components/BottomNav";
@@ -10,8 +12,11 @@ import { store } from "@/lib/store";
 import SyncStatusBadge from "@/components/SyncStatusBadge";
 import logo from "@/assets/logo.png";
 import { formatCurrency } from "@/lib/currency";
+import { useStoreRefresh } from "@/hooks/use-live-data";
 import { useSecurityPrefs } from "@/hooks/use-security-prefs";
 import { maskSensitiveValue } from "@/lib/security";
+import { filterMenuItems } from "@/lib/permissions";
+import { useAppContext } from "@/hooks/use-app-context";
 
 const salesMenu = [
   { icon: ShoppingCart, label: "New Sale", path: "/add-sale", color: "#e74c3c" },
@@ -29,7 +34,9 @@ const inventoryMenu = [
   { icon: Package, label: "Products", path: "/products", color: "#e74c3c" },
   { icon: Tags, label: "Categories", path: "/categories", color: "#27ae60" },
   { icon: BookOpen, label: "Brands", path: "/brands", color: "#2980b9" },
+  { icon: Ruler, label: "Units", path: "/units", color: "#e67e22" },
   { icon: BarChart3, label: "Stock List", path: "/stock", color: "#8e44ad" },
+  { icon: History, label: "History", path: "/inventory-history", color: "#6366f1" },
 ];
 
 const peopleMenu = [
@@ -46,12 +53,26 @@ const financeMenu = [
 ];
 
 const hrmMenu = [
-  { icon: Users2, label: "HRM", path: "/hrm", color: "#8e44ad" },
+  { icon: Briefcase, label: "Departments", path: "/hrm/departments", color: "#2980b9" },
+  { icon: UserCheck, label: "Designations", path: "/hrm/designations", color: "#27ae60" },
+  { icon: Clock, label: "Shifts", path: "/hrm/shifts", color: "#e67e22" },
+  { icon: Users, label: "Employees", path: "/hrm/employees", color: "#8e44ad" },
+  { icon: CalendarDays, label: "Leave Types", path: "/hrm/leave-types", color: "#e74c3c" },
+  { icon: CalendarOff, label: "Leaves", path: "/hrm/leaves", color: "#2980b9" },
+  { icon: CalendarDays, label: "Holidays", path: "/hrm/holidays", color: "#27ae60" },
+  { icon: ClipboardList, label: "Attendance", path: "/hrm/attendance", color: "#e67e22" },
+  { icon: DollarSign, label: "Payroll", path: "/hrm/payroll", color: "#e74c3c" },
+  { icon: BarChart3, label: "Attendance Report", path: "/hrm/attendance-report", color: "#8e44ad" },
+  { icon: FileText, label: "Payroll Report", path: "/hrm/payroll-report", color: "#2980b9" },
+  { icon: FileText, label: "Leave Report", path: "/hrm/leave-report", color: "#27ae60" },
+  { icon: ShieldCheck, label: "User Roles", path: "/user-roles", color: "#2c3e50" },
 ];
 
 const Index = () => {
   const navigate = useNavigate();
+  useStoreRefresh();
   const security = useSecurityPrefs();
+  const { role } = useAppContext();
   const sales = store.getSales();
   const purchases = store.getPurchases();
   const expenses = store.getExpenses();
@@ -60,6 +81,13 @@ const Index = () => {
   const totalPurchases = purchases.reduce((s, p) => s + p.total, 0);
   const totalProfit = sales.reduce((s, sale) => s + sale.profit, 0);
   const totalExpense = expenses.reduce((s, e) => s + e.amount, 0);
+
+  const fSales = filterMenuItems(salesMenu, role);
+  const fPurchase = filterMenuItems(purchaseMenu, role);
+  const fInventory = filterMenuItems(inventoryMenu, role);
+  const fPeople = filterMenuItems(peopleMenu, role);
+  const fFinance = filterMenuItems(financeMenu, role);
+  const fHrm = filterMenuItems(hrmMenu, role);
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -101,12 +129,12 @@ const Index = () => {
       </div>
 
       <div className="px-4 mt-5 space-y-5">
-        <Section title="Sales" items={salesMenu} />
-        <Section title="Purchase" items={purchaseMenu} />
-        <Section title="Inventory" items={inventoryMenu} />
-        <Section title="People" items={peopleMenu} />
-        <Section title="Finance & Reports" items={financeMenu} />
-        <Section title="HRM" items={hrmMenu} />
+        {fSales.length > 0 && <Section title="Sales" items={fSales} />}
+        {fPurchase.length > 0 && <Section title="Purchase" items={fPurchase} />}
+        {fInventory.length > 0 && <Section title="Inventory" items={fInventory} />}
+        {fPeople.length > 0 && <Section title="People" items={fPeople} />}
+        {fFinance.length > 0 && <Section title="Finance & Reports" items={fFinance} />}
+        {fHrm.length > 0 && <Section title="HRM" items={fHrm} />}
       </div>
 
       <BottomNav />
@@ -114,7 +142,7 @@ const Index = () => {
   );
 };
 
-const Section = ({ title, items }: { title: string; items: { icon: any; label: string; path: string; color: string }[] }) => (
+const Section = ({ title, items }: { title: string; items: { icon: LucideIcon; label: string; path: string; color: string }[] }) => (
   <div>
     <h3 className="font-bold text-sm text-muted-foreground uppercase tracking-wider mb-2">{title}</h3>
     <div className="grid grid-cols-3 gap-2">

@@ -7,10 +7,12 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { store, BusinessProfile } from "@/lib/store";
-import { Building2, Phone, Mail, MapPin, Moon, Sun, Save, Camera, DollarSign, HelpCircle, Shield, Bell, LogOut, Loader2, Wifi, WifiOff } from "lucide-react";
+import { Building2, Phone, Mail, MapPin, Moon, Sun, Save, Camera, DollarSign, HelpCircle, Shield, Bell, LogOut, Loader2, Wifi, WifiOff, Users, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
-import { apiSignOut, apiGetBusinessProfile, apiSaveBusinessProfile } from "@/lib/api";
+import { apiSignOut, apiGetBusinessProfile, apiSaveBusinessProfile, apiSendPushNotification, apiGet } from "@/lib/api";
+import { loadAlertPrefs } from "@/lib/alert-notifications";
+import { initializeMobilePush } from "@/lib/mobile-push";
 import { useAppContext } from "@/hooks/use-app-context";
 import { SecurityPrefs, loadSecurityPrefs, saveSecurityPrefs, hasPinSet, savePin, clearPin, verifyPin } from "@/lib/security";
 
@@ -21,14 +23,15 @@ type AlertPrefs = {
   pushEnabled: boolean;
 };
 
+type StaffUser = {
+  id: number;
+  name: string;
+  email: string;
+};
+
 const ALERT_PREFS_KEY = "pos_alert_prefs";
 
-const defaultAlertPrefs: AlertPrefs = {
-  lowStock: true,
-  duePayments: true,
-  salesSummary: false,
-  pushEnabled: true,
-};
+const defaultAlertPrefs: AlertPrefs = loadAlertPrefs();
 
 function loadPrefs<T>(key: string, defaults: T): T {
   try {
@@ -54,6 +57,7 @@ const Settings = () => {
   const [showAlertDialog, setShowAlertDialog] = useState(false);
   const [showSecurityDialog, setShowSecurityDialog] = useState(false);
   const [showHelpDialog, setShowHelpDialog] = useState(false);
+  const [showPushDialog, setShowPushDialog] = useState(false);
   const [alerts, setAlerts] = useState<AlertPrefs>(() => loadPrefs(ALERT_PREFS_KEY, defaultAlertPrefs));
   const [security, setSecurity] = useState<SecurityPrefs>(() => loadSecurityPrefs());
   const [pinSet, setPinSet] = useState(() => hasPinSet());
@@ -63,6 +67,15 @@ const Settings = () => {
   const [pinCurrent, setPinCurrent] = useState("");
   const [pinFormError, setPinFormError] = useState("");
   const [pinSaving, setPinSaving] = useState(false);
+  const [pushTitle, setPushTitle] = useState("Test Push Alert");
+  const [pushBody, setPushBody] = useState("This is a test notification from Settings.");
+  const [pushSending, setPushSending] = useState(false);
+  const [recipientMode, setRecipientMode] = useState<"all" | "selected">("all");
+  const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const ownerEmail = (profile.email || "").trim();
+  const ownerPhone = (profile.phone || "").trim();
 
   useEffect(() => {
     if (profile.darkMode) {
@@ -85,6 +98,25 @@ const Settings = () => {
     }).catch(() => { /* offline or endpoint unavailable — keep local */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!showPushDialog || !isOwner) return;
+
+    const loadStaffUsers = async () => {
+      setStaffLoading(true);
+      try {
+        const payload = await apiGet<{ data?: Array<{ id: number; name: string; email: string }> }>("/users");
+        const users = Array.isArray(payload.data) ? payload.data : [];
+        setStaffUsers(users.map((u) => ({ id: u.id, name: u.name, email: u.email })));
+      } catch {
+        setStaffUsers([]);
+      } finally {
+        setStaffLoading(false);
+      }
+    };
+
+    void loadStaffUsers();
+  }, [showPushDialog, isOwner]);
 
   const handleSave = () => {
     if (!isOwner) {
@@ -145,6 +177,10 @@ const Settings = () => {
   const updateAlerts = (next: AlertPrefs) => {
     setAlerts(next);
     savePrefs(ALERT_PREFS_KEY, next);
+    void initializeMobilePush(next.pushEnabled).catch(() => undefined);
+    if (next.pushEnabled && typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      void Notification.requestPermission().catch(() => undefined);
+    }
   };
 
   const updateSecurity = (next: SecurityPrefs) => {
@@ -180,6 +216,55 @@ const Settings = () => {
     clearPin();
     setPinSet(false);
     toast({ title: "PIN removed", description: "Lock screen PIN has been cleared." });
+  };
+
+  const handleSendTestPush = async () => {
+    if (!isOwner) {
+      toast({ title: "Permission required", description: "Only Shop Owner can send push notifications", variant: "destructive" });
+      return;
+    }
+
+    if (!pushTitle.trim()) {
+      toast({ title: "Title is required", variant: "destructive" });
+      return;
+    }
+
+    if (recipientMode === "selected" && selectedUserIds.length === 0) {
+      toast({ title: "Select at least one staff user", variant: "destructive" });
+      return;
+    }
+
+    setPushSending(true);
+    try {
+      const result = await apiSendPushNotification({
+        title: pushTitle.trim(),
+        body: pushBody.trim(),
+        data: { source: "settings-test" },
+        user_ids: recipientMode === "selected" ? selectedUserIds : undefined,
+      });
+
+      toast({
+        title: "Push request sent",
+        description: result
+          ? `Delivered: ${result.success}, Failed: ${result.failure}, Tokens: ${result.total_tokens}`
+          : "Push send request completed.",
+      });
+      setShowPushDialog(false);
+      setRecipientMode("all");
+      setSelectedUserIds([]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to send push notification";
+      toast({ title: "Push send failed", description: message, variant: "destructive" });
+    } finally {
+      setPushSending(false);
+    }
+  };
+
+  const toggleRecipient = (userId: number, checked: boolean) => {
+    setSelectedUserIds((prev) => {
+      if (checked) return [...new Set([...prev, userId])];
+      return prev.filter((id) => id !== userId);
+    });
   };
 
   return (
@@ -286,7 +371,9 @@ const Settings = () => {
         <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
           {[
             { icon: Bell, label: "Notifications", desc: "Manage alerts", onClick: () => setShowAlertDialog(true) },
+            ...(isOwner ? [{ icon: Send, label: "Send Test Push", desc: "Broadcast test notification", onClick: () => setShowPushDialog(true) }] : []),
             { icon: Shield, label: "Privacy & Security", desc: "App security settings", onClick: () => setShowSecurityDialog(true) },
+            ...(isOwner ? [{ icon: Users, label: "User Roles", desc: "Manage staff permissions", onClick: () => navigate("/user-roles") }] : []),
             { icon: HelpCircle, label: "Help & Support", desc: "FAQs and contact", onClick: () => setShowHelpDialog(true) },
           ].map((s) => (
             <button key={s.label} onClick={s.onClick} className="w-full p-4 flex items-center gap-3 border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
@@ -484,6 +571,84 @@ const Settings = () => {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={showPushDialog} onOpenChange={setShowPushDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send Test Push</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">Shop Owner only. Sends a push notification to active tokens in this business.</p>
+            <div className="rounded-lg border border-border p-3 space-y-2">
+              <Label className="text-xs text-muted-foreground">Recipients</Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRecipientMode("all")}
+                  className={`px-3 py-1.5 text-xs rounded-lg border ${recipientMode === "all" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}
+                >
+                  All Staff
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecipientMode("selected")}
+                  className={`px-3 py-1.5 text-xs rounded-lg border ${recipientMode === "selected" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}
+                >
+                  Selected Staff
+                </button>
+              </div>
+
+              {recipientMode === "selected" && (
+                <div className="max-h-40 overflow-y-auto border border-border rounded-lg p-2 space-y-2">
+                  {staffLoading && <p className="text-xs text-muted-foreground">Loading staff...</p>}
+                  {!staffLoading && staffUsers.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No staff users found.</p>
+                  )}
+                  {!staffLoading && staffUsers.map((user) => {
+                    const checked = selectedUserIds.includes(user.id);
+                    return (
+                      <label key={user.id} className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => toggleRecipient(user.id, e.target.checked)}
+                        />
+                        <span>{user.name} ({user.email})</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Title</Label>
+              <Input
+                value={pushTitle}
+                maxLength={120}
+                onChange={(e) => setPushTitle(e.target.value)}
+                placeholder="Notification title"
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Message</Label>
+              <Input
+                value={pushBody}
+                maxLength={250}
+                onChange={(e) => setPushBody(e.target.value)}
+                placeholder="Notification body"
+              />
+            </div>
+            <button
+              onClick={handleSendTestPush}
+              disabled={pushSending}
+              className="w-full bg-primary text-primary-foreground rounded-xl py-3 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {pushSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              {pushSending ? "Sending..." : "Send Test Push"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showHelpDialog} onOpenChange={setShowHelpDialog}>
         <DialogContent className="max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -506,19 +671,47 @@ const Settings = () => {
               />
             </div>
 
+            {!isOwner && (ownerEmail || ownerPhone) && (
+              <div className="rounded-xl border border-border p-3 space-y-2">
+                <p className="text-sm font-semibold">Shop Owner Contact</p>
+                {ownerEmail && (
+                  <button
+                    onClick={() => window.open(`mailto:${ownerEmail}`, "_self")}
+                    className="w-full text-left text-sm px-3 py-2 rounded-lg border border-border hover:bg-muted"
+                  >
+                    Email: {ownerEmail}
+                  </button>
+                )}
+                {ownerPhone && (
+                  <button
+                    onClick={() => window.open(`tel:${ownerPhone.replace(/\s+/g, "")}`, "_self")}
+                    className="w-full text-left text-sm px-3 py-2 rounded-lg border border-border hover:bg-muted"
+                  >
+                    Phone: {ownerPhone}
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="rounded-xl border border-border p-3 space-y-2">
               <p className="text-sm font-semibold">Contact Support</p>
               <button
-                onClick={() => window.open("mailto:support@keydoctorssolutions.com", "_self")}
+                onClick={() => window.open("mailto:info@intelinksolutions.com", "_self")}
                 className="w-full text-left text-sm px-3 py-2 rounded-lg border border-border hover:bg-muted"
               >
-                Email: support@keydoctorssolutions.com
+                Email: info@intelinksolutions.com
               </button>
               <button
-                onClick={() => window.open("tel:+2340000000000", "_self")}
+                onClick={() => window.open("tel:+233204447505", "_self")}
                 className="w-full text-left text-sm px-3 py-2 rounded-lg border border-border hover:bg-muted"
               >
-                Phone: +234 000 000 0000
+                Phone: +233 20 444 7505
+              </button>
+              <button
+                onClick={() => window.open("https://intelinksolutions.com", "_blank")}
+                className="w-full text-left text-sm px-3 py-2 rounded-lg border border-border hover:bg-muted"
+              >
+                Website: intelinksolutions.com
               </button>
             </div>
           </div>

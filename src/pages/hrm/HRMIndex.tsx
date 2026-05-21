@@ -2,6 +2,8 @@ import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { Users, Briefcase, Clock, UserCheck, CalendarDays, CalendarOff, ClipboardList, DollarSign, BarChart3, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { filterMenuItems } from "@/lib/permissions";
+import { useAppContext } from "@/hooks/use-app-context";
 
 const hrmItems = [
   { icon: Briefcase, label: "Departments", path: "/hrm/departments", color: "#2980b9" },
@@ -20,11 +22,14 @@ const hrmItems = [
 
 const HRMIndex = () => {
   const navigate = useNavigate();
+  const { role } = useAppContext();
+  const visibleItems = filterMenuItems(hrmItems, role);
+
   return (
     <div className="min-h-screen bg-background pb-20">
       <PageHeader title="HRM" />
       <div className="px-4 py-4 space-y-2">
-        {hrmItems.map((item) => (
+        {visibleItems.map((item) => (
           <button key={item.label} onClick={() => navigate(item.path)} className="w-full bg-card rounded-xl p-3.5 shadow-sm border border-border flex items-center gap-3">
             <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: item.color + "18", color: item.color }}>
               <item.icon size={18} />

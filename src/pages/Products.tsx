@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
-import { Plus, Search, MoreVertical, Eye, Edit, Trash2, Upload, X } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { Plus, Search, MoreVertical, Eye, Edit, Trash2, Upload } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { store, Product } from "@/lib/store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/hooks/use-app-context";
@@ -12,13 +14,39 @@ import { formatCurrency } from "@/lib/currency";
 import { getImageUrl, fileToBase64, getIconForType } from "@/lib/image-utils";
 import { useDebounce } from "@/hooks/use-debounce";
 import { syncLiveBusinessData } from "@/lib/live-sync";
+import { apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiGet } from "@/lib/api";
+import { useLiveData, showSaved, emitStoreUpdate } from "@/hooks/use-live-data";
+
+const ProductThumb = ({ image, name }: { image?: string; name: string }) => {
+  const [imgError, setImgError] = useState(false);
+  const url = image ? getImageUrl(image) : null;
+  return (
+    <div className="w-12 h-12 rounded-lg bg-accent flex items-center justify-center overflow-hidden flex-shrink-0 border border-border">
+      {url && !imgError ? (
+        <img
+          src={url}
+          alt={name}
+          loading="lazy"
+          className="w-full h-full object-cover"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <span className="text-xs font-bold text-muted-foreground">
+          {name.substring(0, 2).toUpperCase()}
+        </span>
+      )}
+    </div>
+  );
+};
 
 const Products = () => {
   const { toast } = useToast();
   const { canManageData, roleLabel } = useAppContext();
-  const categories = store.getCategories();
-  const brands = store.getBrands();
-  const [products, setProducts] = useState<Product[]>(store.getProducts());
+  const categories = useLiveData(() => store.getCategories());
+  const brands = useLiveData(() => store.getBrands());
+  const units = useLiveData(() => store.getUnits());
+  const vatRates = useLiveData(() => store.getVatRates().filter(v => v.status === "Active"));
+  const products = useLiveData(() => store.getProducts());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
@@ -27,6 +55,110 @@ const Products = () => {
   const [viewProduct, setViewProduct] = useState<Product | null>(null);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
+  const [defaultWarehouseId, setDefaultWarehouseId] = useState<string | null>(null);
+
+  function asRows(payload: unknown): Record<string, unknown>[] {
+    if (Array.isArray(payload)) return payload as Record<string, unknown>[];
+    if (!payload || typeof payload !== "object") return [];
+    const obj = payload as Record<string, unknown>;
+
+    if (Array.isArray(obj.data)) return obj.data as Record<string, unknown>[];
+    if (obj.data && typeof obj.data === "object") {
+      const nested = obj.data as Record<string, unknown>;
+      if (Array.isArray(nested.data)) return nested.data as Record<string, unknown>[];
+    }
+
+    for (const key of ["warehouses", "warehouse", "stores", "items", "results", "list"]) {
+      if (Array.isArray(obj[key])) return obj[key] as Record<string, unknown>[];
+    }
+
+    return [];
+  }
+
+  function pickWarehouseId(row: Record<string, unknown>): string | null {
+    const value = row.id ?? row.warehouse_id ?? row.warehouseId ?? row.store_id ?? row.storeId;
+    if (value === undefined || value === null || String(value) === "") return null;
+    return String(value);
+  }
+
+  async function resolveWarehouseId(forceRefresh = false): Promise<string | null> {
+    if (!forceRefresh && defaultWarehouseId) return defaultWarehouseId;
+
+    const candidates = [
+      "/warehouses?per_page=500",
+      "/warehouses",
+      "/warehouse?per_page=500",
+      "/warehouse",
+      "/stores?per_page=500",
+      "/stores",
+    ];
+
+    for (const path of candidates) {
+      try {
+        const raw = await apiGet<unknown>(path);
+        const rows = asRows(raw);
+        if (!rows.length) continue;
+
+        const active = rows.find((r) => {
+          const status = String(r.status ?? r.is_active ?? "").toLowerCase();
+          return status === "active" || status === "1" || status === "true";
+        });
+
+        const id = pickWarehouseId(active ?? rows[0]);
+        if (id) {
+          setDefaultWarehouseId(id);
+          return id;
+        }
+      } catch {
+        // Try next candidate.
+      }
+    }
+
+    return null;
+  }
+
+  function extractCreatedProductId(payload: unknown): string | null {
+    if (!payload || typeof payload !== "object") return null;
+    const obj = payload as Record<string, unknown>;
+
+    const directId = obj.id;
+    if (directId !== undefined && directId !== null && String(directId) !== "") {
+      return String(directId);
+    }
+
+    const data = obj.data;
+    if (data && typeof data === "object") {
+      const dataObj = data as Record<string, unknown>;
+      const dataId = dataObj.id;
+      if (dataId !== undefined && dataId !== null && String(dataId) !== "") {
+        return String(dataId);
+      }
+
+      const product = dataObj.product;
+      if (product && typeof product === "object") {
+        const productId = (product as Record<string, unknown>).id;
+        if (productId !== undefined && productId !== null && String(productId) !== "") {
+          return String(productId);
+        }
+      }
+    }
+
+    const product = obj.product;
+    if (product && typeof product === "object") {
+      const productId = (product as Record<string, unknown>).id;
+      if (productId !== undefined && productId !== null && String(productId) !== "") {
+        return String(productId);
+      }
+    }
+
+    return null;
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -41,7 +173,7 @@ const Products = () => {
       }
 
       if (mounted) {
-        setProducts(store.getProducts());
+        emitStoreUpdate();
       }
     };
 
@@ -52,9 +184,84 @@ const Products = () => {
     };
   }, []);
 
-  // Form state
-  const [form, setForm] = useState({ name: "", code: store.getNextProductCode(), categoryId: "", brandId: "", price: "", costPrice: "", retailPrice: "", wholesalePrice: "", dealerPrice: "", stock: "", alertQty: "10", image: "" });
+  // Form state – matches web product form field order
+  const [form, setForm] = useState({
+    name: "",
+    code: store.getNextProductCode(),
+    productType: "single",
+    categoryId: "",
+    brandId: "",
+    unitId: "",
+    stock: "",
+    alertQty: "10",
+    expiryDate: "",
+    vatId: "",
+    vatType: "exclusive",
+    exclusivePrice: "",    // Purchase Price Exclusive
+    inclusivePrice: "",    // Purchase Price Inclusive (auto-calculated)
+    profitMargin: "",      // Profit Margin (%)
+    price: "",             // MRP / Sale Price
+    wholesalePrice: "",
+    dealerPrice: "",
+    manufacturer: "",
+    image: "",
+  });
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  // Auto-calculate inclusive price, profit margin, and MRP
+  const getSelectedVatRate = useCallback((): number => {
+    if (!form.vatId) return 0;
+    const vat = vatRates.find(v => v.id === form.vatId);
+    return vat?.rate ?? 0;
+  }, [form.vatId, vatRates]);
+
+  const recalcInclusive = useCallback((exclusive: string, vatRate: number) => {
+    const ex = Number(exclusive) || 0;
+    return ex > 0 ? String(Math.round((ex + (ex * vatRate / 100)) * 100) / 100) : "";
+  }, []);
+
+  const recalcMrpFromMargin = useCallback((inclusive: string, margin: string) => {
+    const incl = Number(inclusive) || 0;
+    const m = Number(margin) || 0;
+    return incl > 0 && m >= 0 ? String(Math.round((incl + (incl * m / 100)) * 100) / 100) : "";
+  }, []);
+
+  const recalcMarginFromMrp = useCallback((inclusive: string, mrp: string) => {
+    const incl = Number(inclusive) || 0;
+    const m = Number(mrp) || 0;
+    return incl > 0 && m > 0 ? String(Math.round(((m - incl) / incl) * 100 * 100) / 100) : "";
+  }, []);
+
+  // When exclusive price changes → recalc inclusive, then margin
+  const handleExclusiveChange = (val: string) => {
+    const vatRate = getSelectedVatRate();
+    const newInclusive = recalcInclusive(val, vatRate);
+    const newMargin = form.price ? recalcMarginFromMrp(newInclusive, form.price) : form.profitMargin;
+    setForm(f => ({ ...f, exclusivePrice: val, inclusivePrice: newInclusive, profitMargin: newMargin }));
+  };
+
+  // When VAT selection changes → recalc inclusive, then margin
+  const handleVatChange = (vatId: string) => {
+    const vat = vatRates.find(v => v.id === vatId);
+    const vatRate = vat?.rate ?? 0;
+    const newInclusive = recalcInclusive(form.exclusivePrice, vatRate);
+    const newMargin = form.price ? recalcMarginFromMrp(newInclusive, form.price) : form.profitMargin;
+    setForm(f => ({ ...f, vatId, inclusivePrice: newInclusive, profitMargin: newMargin }));
+  };
+
+  // When profit margin changes → recalc MRP
+  const handleMarginChange = (val: string) => {
+    const inclusive = form.inclusivePrice || form.exclusivePrice;
+    const newMrp = recalcMrpFromMargin(inclusive, val);
+    setForm(f => ({ ...f, profitMargin: val, price: newMrp || f.price }));
+  };
+
+  // When MRP changes → recalc margin
+  const handleMrpChange = (val: string) => {
+    const inclusive = form.inclusivePrice || form.exclusivePrice;
+    const newMargin = recalcMarginFromMrp(inclusive, val);
+    setForm(f => ({ ...f, price: val, profitMargin: newMargin }));
+  };
 
   const filtered = products.filter(p => {
     const matchSearch = !debouncedSearch || p.name.toLowerCase().includes(debouncedSearch.toLowerCase()) || p.code.toLowerCase().includes(debouncedSearch.toLowerCase());
@@ -64,43 +271,263 @@ const Products = () => {
   });
 
   const resetForm = () => {
-    setForm({ name: "", code: store.getNextProductCode(), categoryId: "", brandId: "", price: "", costPrice: "", retailPrice: "", wholesalePrice: "", dealerPrice: "", stock: "", alertQty: "10", image: "" });
+    setForm({
+      name: "",
+      code: store.getNextProductCode(),
+      productType: "single",
+      categoryId: "",
+      brandId: "",
+      unitId: "",
+      stock: "",
+      alertQty: "10",
+      expiryDate: "",
+      vatId: "",
+      vatType: "exclusive",
+      exclusivePrice: "",
+      inclusivePrice: "",
+      profitMargin: "",
+      price: "",
+      wholesalePrice: "",
+      dealerPrice: "",
+      manufacturer: "",
+      image: "",
+    });
     setImagePreview(null);
+    setImageFile(null);
   };
 
-  const addProduct = () => {
-    if (!form.name.trim() || !form.price) return;
-    const p: Product = {
-      id: store.nextId(), name: form.name.trim(), code: form.code,
-      categoryId: form.categoryId, brandId: form.brandId,
-      price: Number(form.price), costPrice: Number(form.costPrice) || Number(form.price) * 0.7,
-      retailPrice: Number(form.retailPrice) || Number(form.price),
-      wholesalePrice: Number(form.wholesalePrice) || Number(form.price) * 0.9,
-      dealerPrice: Number(form.dealerPrice) || Number(form.price) * 0.85,
-      stock: Number(form.stock) || 0, alertQty: Number(form.alertQty) || 10,
-      image: form.image || undefined,
-    };
-    const updated = [...products, p];
-    setProducts(updated); store.saveProducts(updated);
-    setProducts(store.getProducts());
-    resetForm(); setShowAdd(false);
-    toast({ title: "Product added!" });
+  const addProduct = async () => {
+    if (!form.name.trim() || !form.exclusivePrice) return;
+    setSaving(true);
+    const isOnline = store.getBusinessProfile().isOnline;
+
+    const exclusivePrice = Number(form.exclusivePrice) || 0;
+    const inclusivePrice = Number(form.inclusivePrice) || exclusivePrice;
+    const salePrice = Number(form.price) || inclusivePrice;
+    const profitMargin = Number(form.profitMargin) || 0;
+    const wholesalePrice = Number(form.wholesalePrice) || salePrice;
+    const dealerPrice = Number(form.dealerPrice) || salePrice;
+    const stockQty = Number(form.stock) || 0;
+
+    if (isOnline) {
+      try {
+        const resolvedWarehouseId = await resolveWarehouseId();
+        const createPayload = {
+          productName: form.name.trim(),
+          productCode: form.code || undefined,
+          product_type: (form.productType as "single" | "variant" | "combo") || "single",
+          vat_type: (form.vatType as "inclusive" | "exclusive") || "exclusive",
+          vat_id: (form.vatId && form.vatId !== "none") ? form.vatId : null,
+          category_id: form.categoryId || null,
+          brand_id: form.brandId || null,
+          unit_id: form.unitId || null,
+          alert_qty: Number(form.alertQty) || 10,
+          productManufacturer: form.manufacturer || undefined,
+          productSalePrice: salePrice,
+          productPurchasePrice: exclusivePrice,
+          productWholeSalePrice: wholesalePrice,
+          productDealerPrice: dealerPrice,
+          productStock: stockQty,
+          productPicture: imageFile,
+          stocks: [{
+            warehouse_id: resolvedWarehouseId ?? undefined,
+            productStock: stockQty,
+            exclusive_price: exclusivePrice,
+            inclusive_price: inclusivePrice,
+            profit_percent: profitMargin,
+            productSalePrice: salePrice,
+            productWholeSalePrice: wholesalePrice,
+            productDealerPrice: dealerPrice,
+            expire_date: form.expiryDate || null,
+          }],
+        };
+
+        let effectivePayload = createPayload;
+        let createResult: unknown;
+        try {
+          createResult = await apiCreateProduct(effectivePayload);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message.toLowerCase() : "";
+          if (msg.includes("selected unit id is invalid")) {
+            effectivePayload = { ...effectivePayload, unit_id: null };
+            createResult = await apiCreateProduct(effectivePayload);
+          } else if (msg.includes("warehouse_id is invalid")) {
+            const validWarehouseId = await resolveWarehouseId(true);
+            effectivePayload = {
+              ...effectivePayload,
+              stocks: [{
+                ...effectivePayload.stocks[0],
+                warehouse_id: validWarehouseId ?? undefined,
+              }],
+            };
+            createResult = await apiCreateProduct(effectivePayload);
+          } else {
+            throw err;
+          }
+        }
+
+        // Follow-up update to set root product prices for web panel visibility
+        const createdProductId = extractCreatedProductId(createResult);
+        if (createdProductId) {
+          try {
+            await apiUpdateProduct(createdProductId, {
+              productName: effectivePayload.productName,
+              product_type: effectivePayload.product_type ?? "single",
+              vat_type: effectivePayload.vat_type ?? "exclusive",
+              vat_id: (effectivePayload.vat_id && effectivePayload.vat_id !== "none") ? effectivePayload.vat_id : null,
+              category_id: effectivePayload.category_id,
+              brand_id: effectivePayload.brand_id,
+              unit_id: effectivePayload.unit_id,
+              alert_qty: effectivePayload.alert_qty,
+              productManufacturer: effectivePayload.productManufacturer,
+              productSalePrice: effectivePayload.productSalePrice,
+              productPurchasePrice: effectivePayload.productPurchasePrice,
+              productWholeSalePrice: effectivePayload.productWholeSalePrice,
+              productDealerPrice: effectivePayload.productDealerPrice,
+              productStock: effectivePayload.productStock,
+              stocks: undefined,
+            });
+          } catch (updateErr) {
+            console.warn("[Products] post-create root update failed:", updateErr instanceof Error ? updateErr.message : updateErr);
+          }
+        }
+
+        await syncLiveBusinessData();
+        resetForm(); setShowAdd(false);
+        showSaved("Product added!");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to add product";
+        toast({ title: "Error", description: msg, variant: "destructive" });
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      const p: Product = {
+        id: store.nextId(), name: form.name.trim(), code: form.code,
+        categoryId: form.categoryId, brandId: form.brandId, unitId: form.unitId,
+        vatId: form.vatId || undefined,
+        price: salePrice, costPrice: exclusivePrice,
+        retailPrice: salePrice,
+        wholesalePrice, dealerPrice,
+        stock: stockQty, alertQty: Number(form.alertQty) || 10,
+        profitMargin: profitMargin || undefined,
+        manufacturer: form.manufacturer || undefined,
+        expiryDate: form.expiryDate || undefined,
+        image: form.image || undefined,
+      };
+      const updated = [...products, p];
+      store.saveProducts(updated);
+      emitStoreUpdate();
+      resetForm(); setShowAdd(false);
+      showSaved("Product saved locally (offline)");
+      setSaving(false);
+    }
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editProduct) return;
-    const updated = products.map(p => p.id === editProduct.id ? editProduct : p);
-    setProducts(updated); store.saveProducts(updated);
-    setProducts(store.getProducts());
-    setEditProduct(null);
-    toast({ title: "Product updated!" });
+    setSaving(true);
+    const isOnline = store.getBusinessProfile().isOnline;
+
+    if (isOnline) {
+      try {
+        // Build the update payload with image support
+        const updatePayload = {
+          productName: editProduct.name,
+          product_type: "single" as const,
+          vat_type: "exclusive" as const,
+          vat_id: (editProduct.vatId && editProduct.vatId !== "none") ? editProduct.vatId : null,
+          alert_qty: editProduct.alertQty,
+          productManufacturer: editProduct.manufacturer || undefined,
+          productSalePrice: editProduct.price,
+          productPurchasePrice: editProduct.costPrice,
+          productWholeSalePrice: editProduct.wholesalePrice,
+          productDealerPrice: editProduct.dealerPrice,
+          productStock: editProduct.stock,
+          category_id: editProduct.categoryId || null,
+          brand_id: editProduct.brandId || null,
+          unit_id: editProduct.unitId || null,
+          // Include image file if a new one was uploaded, otherwise use existing image
+          productPicture: editImageFile || (editProduct.image ? null : undefined),
+          stocks: [{
+            productStock: editProduct.stock,
+            exclusive_price: editProduct.costPrice,
+            inclusive_price: editProduct.costPrice,
+            profit_percent: editProduct.costPrice > 0
+              ? (((editProduct.price - editProduct.costPrice) / editProduct.costPrice) * 100)
+              : 0,
+            productSalePrice: editProduct.price,
+            productWholeSalePrice: editProduct.wholesalePrice,
+            productDealerPrice: editProduct.dealerPrice,
+          }],
+        };
+
+        await apiUpdateProduct(editProduct.id, updatePayload);
+        await syncLiveBusinessData();
+        // Reset edit image state
+        setEditImageFile(null);
+        setEditImagePreview(null);
+        setEditProduct(null);
+        showSaved("Product updated!");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to update product";
+        toast({ title: "Error", description: msg, variant: "destructive" });
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      // Offline mode - update local store
+      const updatedProduct = {
+        ...editProduct,
+        image: editImagePreview || editProduct.image || undefined,
+      };
+      const updated = products.map(p => p.id === updatedProduct.id ? updatedProduct : p);
+      store.saveProducts(updated);
+      emitStoreUpdate();
+      // Reset edit image state
+      setEditImageFile(null);
+      setEditImagePreview(null);
+      setEditProduct(null);
+      showSaved("Product updated locally (offline)");
+      setSaving(false);
+    }
   };
 
-  const deleteProduct = (id: string) => {
-    const updated = products.filter(p => p.id !== id);
-    setProducts(updated); store.saveProducts(updated); setMenuId(null);
-    setProducts(store.getProducts());
-    toast({ title: "Product deleted" });
+  const requestDeleteProduct = (id: string) => {
+    setMenuId(null);
+    setConfirmDeleteId(id);
+  };
+
+  const executeDeleteProduct = async () => {
+    const id = confirmDeleteId;
+    if (!id) return;
+    setDeleting(true);
+    const isOnline = store.getBusinessProfile().isOnline;
+    if (isOnline) {
+      try {
+        await apiDeleteProduct(id);
+        await syncLiveBusinessData();
+        showSaved("Product deleted");
+      } catch (err) {
+        // Backend may error (e.g. stock constraint) even when delete succeeds.
+        // Sync and check whether the product is actually gone.
+        await syncLiveBusinessData();
+        const stillExists = store.getProducts().some((p) => p.id === id);
+        if (!stillExists) {
+          showSaved("Product deleted");
+        } else {
+          const msg = err instanceof Error ? err.message : "Failed to delete product";
+          toast({ title: "Error", description: msg, variant: "destructive" });
+        }
+      }
+    } else {
+      const updated = products.filter((p) => p.id !== id);
+      store.saveProducts(updated);
+      emitStoreUpdate();
+      showSaved("Product deleted");
+    }
+    setDeleting(false);
+    setConfirmDeleteId(null);
   };
 
   const getCatName = (id?: string) => categories.find(c => c.id === id)?.name || "-";
@@ -131,22 +558,15 @@ const Products = () => {
         </div>
 
         {filtered.map(p => (
-          <div key={p.id} className="flex items-center gap-3 bg-card rounded-xl p-3.5 border border-border">
-            <div className="w-11 h-11 rounded-lg bg-accent flex items-center justify-center text-lg overflow-hidden flex-shrink-0">
-              {p.image ? (
-                <img src={getImageUrl(p.image) || "#"} alt={p.name} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; const sib = e.currentTarget.nextElementSibling as HTMLElement | null; if (sib) sib.style.display = "flex"; }} />
-              ) : null}
-              <span style={{ display: p.image ? "none" : "flex" }} className="w-full h-full bg-accent flex items-center justify-center">
-                {getIconForType("product", p.name)}
-              </span>
-            </div>
+          <div key={p.id} className="flex items-center gap-3 bg-card rounded-xl p-3.5 border border-border cursor-pointer active:bg-accent/50 transition-colors" onClick={() => setViewProduct(p)}>
+            <ProductThumb image={p.image} name={p.name} />
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm truncate">{p.name}</p>
               <p className="text-[11px] text-muted-foreground">{p.code} · {getCatName(p.categoryId)}</p>
               <p className="text-[11px] text-muted-foreground">Stock: <span className={p.stock <= p.alertQty ? "text-destructive font-semibold" : ""}>{p.stock}</span></p>
             </div>
             <p className="font-bold text-sm">{formatCurrency(p.price)}</p>
-            <div className="relative">
+            <div className="relative" onClick={(e) => e.stopPropagation()}>
               <button onClick={() => setMenuId(menuId === p.id ? null : p.id)}><MoreVertical size={18} className="text-muted-foreground" /></button>
               {menuId === p.id && (
                 <div className="absolute right-0 top-7 bg-card border border-border rounded-lg shadow-lg z-10 min-w-[120px]">
@@ -154,7 +574,7 @@ const Products = () => {
                   {canManageData && (
                     <>
                       <button onClick={() => { setEditProduct(p); setMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent"><Edit size={14} /> Edit</button>
-                      <button onClick={() => deleteProduct(p.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-destructive"><Trash2 size={14} /> Delete</button>
+                      <button onClick={() => requestDeleteProduct(p.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-destructive"><Trash2 size={14} /> Delete</button>
                     </>
                   )}
                 </div>
@@ -169,65 +589,187 @@ const Products = () => {
         <button onClick={() => { resetForm(); setShowAdd(true); }} className="fixed bottom-24 right-5 w-14 h-14 bg-primary text-primary-foreground rounded-full shadow-xl flex items-center justify-center"><Plus size={24} /></button>
       )}
 
-      {/* Add Product Dialog */}
+      {/* Add Product Dialog – matches web product form layout */}
       <Dialog open={canManageData && showAdd} onOpenChange={setShowAdd}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Add Product</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-4">
+            {/* Product Name */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Product Name <span className="text-destructive">*</span></Label>
+              <Input placeholder="Enter Product Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            </div>
+
+            {/* Category */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Product Category</Label>
+              <Select value={form.categoryId} onValueChange={v => setForm({ ...form, categoryId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select One" /></SelectTrigger>
+                <SelectContent>{categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+
+            {/* Brand */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Product Brand</Label>
+              <Select value={form.brandId} onValueChange={v => setForm({ ...form, brandId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select one" /></SelectTrigger>
+                <SelectContent>{brands.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+
+            {/* Unit */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Product Unit</Label>
+              <Select value={form.unitId} onValueChange={v => setForm({ ...form, unitId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select one" /></SelectTrigger>
+                <SelectContent>{units.map(u => <SelectItem key={u.id} value={u.id}>{u.name} ({u.shortName})</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+
+            {/* Product Code */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Product Code</Label>
+              <Input placeholder="Auto-generated" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} />
+            </div>
+
+            {/* Stock & Alert Qty */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Stock</Label>
+                <Input placeholder="Enter stock qty" type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Low Stock Quantity</Label>
+                <Input placeholder="Enter alert qty" type="number" value={form.alertQty} onChange={e => setForm({ ...form, alertQty: e.target.value })} />
+              </div>
+            </div>
+
+            {/* Expire Date */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Expire Date</Label>
+              <Input type="date" placeholder="mm/dd/yyyy" value={form.expiryDate} onChange={e => setForm({ ...form, expiryDate: e.target.value })} />
+            </div>
+
+            {/* Vat & Vat Type */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Select Vat</Label>
+                <Select value={form.vatId} onValueChange={handleVatChange}>
+                  <SelectTrigger><SelectValue placeholder="Select vat" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No VAT</SelectItem>
+                    {vatRates.map(v => <SelectItem key={v.id} value={v.id}>{v.name} ({v.rate}%)</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Vat Type</Label>
+                <Select value={form.vatType} onValueChange={v => setForm({ ...form, vatType: v })}>
+                  <SelectTrigger><SelectValue placeholder="Vat Type" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="exclusive">Exclusive</SelectItem>
+                    <SelectItem value="inclusive">Inclusive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Purchase Price Exclusive & Inclusive */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Purchase Price Exclusive <span className="text-destructive">*</span></Label>
+                <Input placeholder="Enter purchase price" type="number" value={form.exclusivePrice} onChange={e => handleExclusiveChange(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Purchase Price Inclusive</Label>
+                <Input placeholder="Auto-calculated" type="number" value={form.inclusivePrice} readOnly className="bg-muted" />
+              </div>
+            </div>
+
+            {/* Profit Margin & MRP */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Profit Margin (%)</Label>
+                <Input placeholder="Enter profit margin" type="number" value={form.profitMargin} onChange={e => handleMarginChange(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">MRP <span className="text-destructive">*</span></Label>
+                <Input placeholder="Enter sale price" type="number" value={form.price} onChange={e => handleMrpChange(e.target.value)} />
+              </div>
+            </div>
+
+            {/* Wholesale & Dealer */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Wholesale Price</Label>
+                <Input placeholder="Enter wholesale price" type="number" value={form.wholesalePrice} onChange={e => setForm({ ...form, wholesalePrice: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Dealer Price</Label>
+                <Input placeholder="Enter dealer price" type="number" value={form.dealerPrice} onChange={e => setForm({ ...form, dealerPrice: e.target.value })} />
+              </div>
+            </div>
+
+            {/* Manufacturer */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Manufacturer</Label>
+              <Input placeholder="Enter manufacturer name" value={form.manufacturer} onChange={e => setForm({ ...form, manufacturer: e.target.value })} />
+            </div>
+
             {/* Image Upload */}
-            <div className="flex items-center gap-2">
-              <div className="w-16 h-16 rounded-lg bg-accent flex items-center justify-center border-2 border-dashed border-border overflow-hidden flex-shrink-0">
-                {imagePreview ? (
-                  <img src={imagePreview} alt="preview" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-2xl">{getIconForType("product")}</span>
-                )}
-              </div>
-              <div className="flex-1">
-                <label className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg cursor-pointer text-sm font-medium hover:bg-primary/90">
-                  <Upload size={14} />
-                  <span>Upload Image</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const base64 = await fileToBase64(file);
-                        setForm({ ...form, image: base64 });
-                        setImagePreview(base64);
-                      }
-                    }}
-                  />
-                </label>
-                {form.image && (
-                  <button
-                    onClick={() => {
-                      setForm({ ...form, image: "" });
-                      setImagePreview(null);
-                    }}
-                    className="mt-1 text-xs text-destructive hover:underline"
-                  >
-                    Remove Image
-                  </button>
-                )}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Image</Label>
+              <div className="flex items-center gap-3">
+                <div className="w-16 h-16 rounded-lg bg-accent flex items-center justify-center border-2 border-dashed border-border overflow-hidden flex-shrink-0">
+                  {imagePreview ? (
+                    <img src={imagePreview} alt="preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-2xl">{getIconForType("product")}</span>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <label className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg cursor-pointer text-sm font-medium hover:bg-primary/90">
+                    <Upload size={14} />
+                    <span>Upload Image</span>
+                    <input
+                      type="file"
+                      accept="image/jpg,image/jpeg,image/png,image/svg+xml"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const base64 = await fileToBase64(file);
+                          setImageFile(file);
+                          setForm(f => ({ ...f, image: base64 }));
+                          setImagePreview(base64);
+                        }
+                      }}
+                    />
+                  </label>
+                  {form.image && (
+                    <button
+                      onClick={() => {
+                        setImageFile(null);
+                        setForm(f => ({ ...f, image: "" }));
+                        setImagePreview(null);
+                      }}
+                      className="mt-1 text-xs text-destructive hover:underline"
+                    >
+                      Remove Image
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-            <Input placeholder="Product Name *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-            <Input placeholder="Product Code" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} />
-            <Select value={form.categoryId} onValueChange={v => setForm({ ...form, categoryId: v })}><SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger><SelectContent>{categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select>
-            <Select value={form.brandId} onValueChange={v => setForm({ ...form, brandId: v })}><SelectTrigger><SelectValue placeholder="Brand" /></SelectTrigger><SelectContent>{brands.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select>
-            <div className="grid grid-cols-2 gap-2">
-              <Input placeholder="Sell Price *" type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
-              <Input placeholder="Cost Price" type="number" value={form.costPrice} onChange={e => setForm({ ...form, costPrice: e.target.value })} />
-              <Input placeholder="Retail Price" type="number" value={form.retailPrice} onChange={e => setForm({ ...form, retailPrice: e.target.value })} />
-              <Input placeholder="Wholesale Price" type="number" value={form.wholesalePrice} onChange={e => setForm({ ...form, wholesalePrice: e.target.value })} />
-              <Input placeholder="Dealer Price" type="number" value={form.dealerPrice} onChange={e => setForm({ ...form, dealerPrice: e.target.value })} />
-              <Input placeholder="Stock" type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
-            </div>
-            <Input placeholder="Alert Qty" type="number" value={form.alertQty} onChange={e => setForm({ ...form, alertQty: e.target.value })} />
-            <button onClick={addProduct} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Save Product</button>
+
+            <button
+              onClick={addProduct}
+              disabled={saving || !form.name.trim() || !form.exclusivePrice}
+              className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60"
+            >
+              {saving ? "Saving..." : "Save Product"}
+            </button>
           </div>
         </DialogContent>
       </Dialog>
@@ -239,21 +781,22 @@ const Products = () => {
           {viewProduct && (
             <div className="space-y-4">
               {viewProduct.image && (
-                <div className="w-full h-48 rounded-lg bg-accent flex items-center justify-center overflow-hidden border border-border">
-                  <img src={getImageUrl(viewProduct.image) || "#"} alt={viewProduct.name} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                <div className="w-full max-h-64 rounded-lg bg-accent flex items-center justify-center overflow-hidden border border-border">
+                  <img src={getImageUrl(viewProduct.image) || "#"} alt={viewProduct.name} loading="lazy" className="w-full h-full object-contain" style={{ maxWidth: '100%', maxHeight: '16rem' }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
                 </div>
               )}
               <div className="space-y-2 text-sm">
                 <Row label="Code" value={viewProduct.code} />
                 <Row label="Category" value={getCatName(viewProduct.categoryId)} />
                 <Row label="Brand" value={getBrandName(viewProduct.brandId)} />
-                <Row label="Sell Price" value={formatCurrency(viewProduct.price)} />
-                <Row label="Cost Price" value={formatCurrency(viewProduct.costPrice)} />
-                <Row label="Retail" value={formatCurrency(viewProduct.retailPrice)} />
+                <Row label="Purchase Price" value={formatCurrency(viewProduct.costPrice)} />
+                <Row label="MRP (Sale Price)" value={formatCurrency(viewProduct.price)} />
                 <Row label="Wholesale" value={formatCurrency(viewProduct.wholesalePrice)} />
                 <Row label="Dealer" value={formatCurrency(viewProduct.dealerPrice)} />
                 <Row label="Stock" value={String(viewProduct.stock)} />
                 <Row label="Alert Qty" value={String(viewProduct.alertQty)} />
+                {viewProduct.manufacturer && <Row label="Manufacturer" value={viewProduct.manufacturer} />}
+                {viewProduct.expiryDate && <Row label="Expiry Date" value={viewProduct.expiryDate} />}
               </div>
             </div>
           )}
@@ -266,18 +809,128 @@ const Products = () => {
           <DialogHeader><DialogTitle>Edit Product</DialogTitle></DialogHeader>
           {editProduct && (
             <div className="space-y-3">
-              <Input value={editProduct.name} onChange={e => setEditProduct({ ...editProduct, name: e.target.value })} />
-              <div className="grid grid-cols-2 gap-2">
-                <Input type="number" value={editProduct.price} onChange={e => setEditProduct({ ...editProduct, price: Number(e.target.value) })} placeholder="Sell Price" />
-                <Input type="number" value={editProduct.costPrice} onChange={e => setEditProduct({ ...editProduct, costPrice: Number(e.target.value) })} placeholder="Cost Price" />
-                <Input type="number" value={editProduct.stock} onChange={e => setEditProduct({ ...editProduct, stock: Number(e.target.value) })} placeholder="Stock" />
-                <Input type="number" value={editProduct.alertQty} onChange={e => setEditProduct({ ...editProduct, alertQty: Number(e.target.value) })} placeholder="Alert Qty" />
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Product Name</Label>
+                <Input value={editProduct.name} onChange={e => setEditProduct({ ...editProduct, name: e.target.value })} />
               </div>
-              <button onClick={saveEdit} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Update</button>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Category</Label>
+                  <Select value={editProduct.categoryId || ""} onValueChange={v => setEditProduct({ ...editProduct, categoryId: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent>{categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Brand</Label>
+                  <Select value={editProduct.brandId || ""} onValueChange={v => setEditProduct({ ...editProduct, brandId: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent>{brands.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Unit</Label>
+                <Select value={editProduct.unitId || ""} onValueChange={v => setEditProduct({ ...editProduct, unitId: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{units.map(u => <SelectItem key={u.id} value={u.id}>{u.name} ({u.shortName})</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Purchase Price</Label>
+                  <Input type="number" value={editProduct.costPrice} onChange={e => setEditProduct({ ...editProduct, costPrice: Number(e.target.value) })} placeholder="Purchase price" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">MRP (Sale Price)</Label>
+                  <Input type="number" value={editProduct.price} onChange={e => setEditProduct({ ...editProduct, price: Number(e.target.value) })} placeholder="Sale price" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Wholesale Price</Label>
+                  <Input type="number" value={editProduct.wholesalePrice} onChange={e => setEditProduct({ ...editProduct, wholesalePrice: Number(e.target.value) })} placeholder="Wholesale" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Dealer Price</Label>
+                  <Input type="number" value={editProduct.dealerPrice} onChange={e => setEditProduct({ ...editProduct, dealerPrice: Number(e.target.value) })} placeholder="Dealer" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Stock</Label>
+                  <Input type="number" value={editProduct.stock} onChange={e => setEditProduct({ ...editProduct, stock: Number(e.target.value) })} placeholder="Stock" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Alert Qty</Label>
+                  <Input type="number" value={editProduct.alertQty} onChange={e => setEditProduct({ ...editProduct, alertQty: Number(e.target.value) })} placeholder="Alert Qty" />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Manufacturer</Label>
+                <Input value={editProduct.manufacturer || ""} onChange={e => setEditProduct({ ...editProduct, manufacturer: e.target.value })} placeholder="Manufacturer" />
+              </div>
+
+              {/* Image Upload for Edit */}
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Product Image</Label>
+                <div className="flex items-center gap-3">
+                  <div className="w-16 h-16 rounded-lg bg-accent flex items-center justify-center border-2 border-dashed border-border overflow-hidden flex-shrink-0">
+                    {editImagePreview ? (
+                      <img src={editImagePreview} alt="edit preview" className="w-full h-full object-cover" />
+                    ) : editProduct.image ? (
+                      <img src={getImageUrl(editProduct.image) || "#"} alt={editProduct.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-2xl">{getIconForType("product")}</span>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <label className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg cursor-pointer text-sm font-medium hover:bg-primary/90">
+                      <Upload size={14} />
+                      <span>Upload New Image</span>
+                      <input
+                        type="file"
+                        accept="image/jpg,image/jpeg,image/png,image/svg+xml"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const base64 = await fileToBase64(file);
+                            setEditImageFile(file);
+                            setEditImagePreview(base64);
+                          }
+                        }}
+                      />
+                    </label>
+                    {(editImagePreview || editProduct.image) && (
+                      <button
+                        onClick={() => {
+                          setEditImageFile(null);
+                          setEditImagePreview(null);
+                        }}
+                        className="mt-1 text-xs text-destructive hover:underline"
+                      >
+                        Remove Image
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <button onClick={saveEdit} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Updating..." : "Update"}</button>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        title="Delete Product"
+        message="Are you sure you want to delete this product? This action cannot be undone."
+        onConfirm={executeDeleteProduct}
+        onCancel={() => setConfirmDeleteId(null)}
+        loading={deleting}
+      />
 
       <BottomNav />
     </div>

@@ -1,31 +1,219 @@
-import { useState, useMemo } from "react";
-import { Minus, Plus, X, Search } from "lucide-react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { Minus, Plus, X, Search, BookUser, Loader2 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Input } from "@/components/ui/input";
-import { store, SaleItem, Product, Customer } from "@/lib/store";
+import { store, SaleItem, Product } from "@/lib/store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/hooks/use-app-context";
 import { formatCurrency } from "@/lib/currency";
 import InvoiceModal from "@/components/InvoiceModal";
+import { apiCreateSale } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
+import { useLiveData, showSaved } from "@/hooks/use-live-data";
+import { getImageUrl } from "@/lib/image-utils";
+
+// ── Phone contact picker ────────────────────────────────────────────────────
+type PhoneContact = { name: string; phone: string };
+const CONTACTS_SESSION_KEY = "pos_phone_contacts";
+
+const supportsContactPicker =
+  typeof navigator !== "undefined" &&
+  "contacts" in navigator &&
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  typeof (navigator as any).contacts?.select === "function";
+
+function normalisePhone(raw: string): string {
+  return raw.replace(/[\s\-().+]/g, "");
+}
+
+const PhoneContactInput = ({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) => {
+  const [contacts, setContacts] = useState<PhoneContact[]>(() => {
+    try {
+      const c = sessionStorage.getItem(CONTACTS_SESSION_KEY);
+      return c ? (JSON.parse(c) as PhoneContact[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  function cacheContacts(list: PhoneContact[]) {
+    setContacts(list);
+    try {
+      sessionStorage.setItem(CONTACTS_SESSION_KEY, JSON.stringify(list));
+    } catch {}
+  }
+
+  // Load ALL contacts so the user can search by typing
+  async function loadAllContacts(): Promise<PhoneContact[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nav = navigator as any;
+    const selected: Array<{ name?: string[]; tel?: string[] }> =
+      await nav.contacts.select(["name", "tel"], { multiple: true });
+    const flat: PhoneContact[] = (selected ?? []).flatMap((c) =>
+      (c.tel ?? []).map((t) => ({
+        name: (c.name?.[0] ?? "Unknown").trim(),
+        phone: normalisePhone(t),
+      }))
+    ).filter((c) => c.phone.length >= 5);
+    return flat;
+  }
+
+  // Pick a single contact quickly
+  async function pickSingleContact(): Promise<string | null> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nav = navigator as any;
+    const selected: Array<{ name?: string[]; tel?: string[] }> =
+      await nav.contacts.select(["name", "tel"], { multiple: false });
+    if (selected?.length > 0) {
+      return normalisePhone(selected[0].tel?.[0] ?? "");
+    }
+    return null;
+  }
+
+  const handleContactBtn = async () => {
+    if (!supportsContactPicker || loading) return;
+    setLoading(true);
+    try {
+      if (contacts.length === 0) {
+        // First time: load all → cache → fill phone from first pick
+        const all = await loadAllContacts();
+        if (all.length > 0) {
+          cacheContacts(all);
+          // Also pick one to fill the field
+          const phone = await pickSingleContact();
+          if (phone) onChange(phone);
+        }
+      } else {
+        // Already have contacts cached → just pick one
+        const phone = await pickSingleContact();
+        if (phone) onChange(phone);
+      }
+    } catch {
+      // user cancelled or API not available
+    }
+    setLoading(false);
+  };
+
+  const filtered = useMemo(() => {
+    if (value.length < 2) return [];
+    const q = value.toLowerCase();
+    const qPhone = normalisePhone(value);
+    return contacts
+      .filter(
+        (c) =>
+          c.phone.includes(qPhone) ||
+          c.name.toLowerCase().includes(q)
+      )
+      .slice(0, 8);
+  }, [value, contacts]);
+
+  useEffect(() => {
+    if (filtered.length > 0) setShowDropdown(true);
+  }, [filtered.length]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <div className="flex gap-2">
+        <Input
+          type="tel"
+          placeholder="Phone (optional)"
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            if (filtered.length > 0) setShowDropdown(true);
+          }}
+          onFocus={() => {
+            if (filtered.length > 0) setShowDropdown(true);
+          }}
+          className="flex-1"
+        />
+        {supportsContactPicker && (
+          <button
+            type="button"
+            onClick={handleContactBtn}
+            disabled={loading}
+            title={contacts.length > 0 ? "Pick from contacts" : "Load phone contacts"}
+            className="px-3 bg-accent rounded-lg border border-border flex items-center justify-center shrink-0 hover:bg-primary/10 transition-colors disabled:opacity-50"
+          >
+            {loading ? (
+              <Loader2 size={18} className="animate-spin text-muted-foreground" />
+            ) : (
+              <BookUser size={18} className="text-primary" />
+            )}
+          </button>
+        )}
+      </div>
+
+      {showDropdown && filtered.length > 0 && (
+        <div className="absolute top-full left-0 right-0 z-50 bg-card border border-border rounded-lg shadow-xl mt-1 max-h-52 overflow-y-auto">
+          {filtered.map((c, i) => (
+            <button
+              key={i}
+              type="button"
+              className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-accent text-left transition-colors border-b border-border/40 last:border-0"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onChange(c.phone);
+                setShowDropdown(false);
+              }}
+            >
+              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                {c.name.charAt(0).toUpperCase() || "#"}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold truncate">{c.name}</p>
+                <p className="text-xs text-muted-foreground">{c.phone}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const AddSale = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const { canManageData, roleLabel } = useAppContext();
-  const products = store.getProducts();
-  const customers = store.getCustomers();
-  const categories = store.getCategories();
-  const brands = store.getBrands();
+  const products = useLiveData(() => store.getProducts());
+  const customers = useLiveData(() => store.getCustomers());
+  const categories = useLiveData(() => store.getCategories());
+  const brands = useLiveData(() => store.getBrands());
+
+  // Accept pre-filled items from ItemsPage checkout
+  const prefillItems: SaleItem[] = (location.state as { prefillItems?: SaleItem[] })?.prefillItems ?? [];
 
   const [invoiceNo] = useState(store.getNextSaleInvoice());
   const [date] = useState(new Date().toISOString().split("T")[0]);
   const [customerType, setCustomerType] = useState<"guest" | "registered">("guest");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
-  const [items, setItems] = useState<SaleItem[]>([]);
+  const [items, setItems] = useState<SaleItem[]>(prefillItems);
   const [vatPercent, setVatPercent] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [receivedAmount, setReceivedAmount] = useState(0);
@@ -34,6 +222,7 @@ const AddSale = () => {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterBrand, setFilterBrand] = useState("");
   const [savedSale, setSavedSale] = useState<ReturnType<typeof store.getSales>[number] | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
 
@@ -95,7 +284,7 @@ const AddSale = () => {
   const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
   const clearAll = () => setItems([]);
 
-  const submit = () => {
+  const submit = async () => {
     if (!canManageData) {
       toast({ title: "Permission required", description: "You have view-only access", variant: "destructive" });
       return;
@@ -105,42 +294,75 @@ const AddSale = () => {
       toast({ title: "Please add items", variant: "destructive" });
       return;
     }
-    const customerName = customerType === "guest" ? "Guest" : (selectedCustomer?.name || "Guest");
-    const profit = items.reduce((s, item) => {
-      const product = products.find(p => p.id === item.productId);
-      return s + ((item.unitPrice - (product?.costPrice || 0)) * item.quantity - item.discount);
-    }, 0);
 
-    const status = dueAmount > 0 ? (receivedAmount > 0 ? "Partial" : "Due") : "Paid";
-
-    const sales = store.getSales();
-    const newSale: typeof sales[0] = {
-      id: store.nextId(), invoiceNo, date,
-      customerId: customerType === "guest" ? "0" : selectedCustomerId,
-      customerName, customerPhone: customerType === "guest" ? guestPhone : selectedCustomer?.phone,
-      items, subtotal, vat: vatAmount, vatPercent, discount, total,
-      paid: Math.min(receivedAmount, total), due: dueAmount, change: changeAmount,
-      profit, status, returned: false,
-    };
-    store.saveSales([newSale, ...sales]);
-
-    // Update stock
-    const updatedProducts = products.map(p => {
-      const saleItem = items.find(i => i.productId === p.id);
-      return saleItem ? { ...p, stock: p.stock - saleItem.quantity } : p;
-    });
-    store.saveProducts(updatedProducts);
-
-    // Update customer due
-    if (customerType === "registered" && selectedCustomer && dueAmount > 0) {
-      const updatedCustomers = customers.map(c =>
-        c.id === selectedCustomerId ? { ...c, due: c.due + dueAmount } : c
-      );
-      store.saveCustomers(updatedCustomers);
+    if (customerType === "guest" && dueAmount > 0) {
+      toast({
+        title: "Guest due sale not allowed",
+        description: "Pay the full amount or select a registered customer.",
+        variant: "destructive",
+      });
+      return;
     }
 
-    toast({ title: "Sale completed successfully!" });
-    setSavedSale(newSale);
+    setSaving(true);
+    try {
+      // Build products payload for backend
+      const apiProducts = items.map(item => {
+        const product = products.find(p => p.id === item.productId);
+        return {
+          product_id: item.productId,
+          stock_id: product?.stockId || "",
+          quantities: item.quantity,
+          price: item.unitPrice,
+          discount: item.discount || 0,
+          product_name: item.name,
+        };
+      });
+
+      const paidAmount = Math.min(receivedAmount, total);
+      const partyId = customerType === "registered" && selectedCustomerId ? selectedCustomerId : null;
+
+      await apiCreateSale({
+        party_id: partyId,
+        vat_id: null,
+        products: apiProducts,
+        payments: paidAmount > 0 ? [{ type: "cash", amount: paidAmount }] : [],
+        saleDate: date,
+        totalAmount: total,
+        dueAmount,
+        paidAmount,
+        isPaid: dueAmount <= 0,
+        discountAmount: discount,
+      });
+
+      // Re-sync from backend to get real data
+      await syncLiveBusinessData();
+
+      // Build local sale object for the invoice modal
+      const customerName = customerType === "guest" ? "Guest" : (selectedCustomer?.name || "Guest");
+      const profit = items.reduce((s, item) => {
+        const product = products.find(p => p.id === item.productId);
+        return s + ((item.unitPrice - (product?.costPrice || 0)) * item.quantity - item.discount);
+      }, 0);
+      const status = dueAmount > 0 ? (receivedAmount > 0 ? "Partial" : "Due") : "Paid";
+
+      const displaySale = {
+        id: store.nextId(), invoiceNo, date,
+        customerId: customerType === "guest" ? "0" : selectedCustomerId,
+        customerName, customerPhone: customerType === "guest" ? (guestPhone.trim() || undefined) : selectedCustomer?.phone,
+        items, subtotal, vat: vatAmount, vatPercent, discount, total,
+        paid: paidAmount, due: dueAmount, change: changeAmount,
+        profit, status: status as "Paid" | "Due" | "Partial", returned: false,
+      };
+
+      showSaved("Sale completed successfully!");
+      setSavedSale(displaySale);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save sale";
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -167,23 +389,28 @@ const AddSale = () => {
         {/* Customer Selection */}
         <div className="bg-card rounded-xl p-4 border border-border space-y-3">
           <div className="flex gap-2">
-            <button onClick={() => setCustomerType("guest")} className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${customerType === "guest" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>Guest</button>
+            <button onClick={() => setCustomerType("guest")} className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${customerType === "guest" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>Walk-in Customer</button>
             <button onClick={() => setCustomerType("registered")} className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${customerType === "registered" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>Registered</button>
           </div>
           {customerType === "guest" ? (
-            <Input placeholder="Phone (optional)" value={guestPhone} onChange={(e) => setGuestPhone(e.target.value)} />
+            <PhoneContactInput value={guestPhone} onChange={setGuestPhone} />
           ) : (
-            <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId}>
-              <SelectTrigger><SelectValue placeholder="Select Customer" /></SelectTrigger>
-              <SelectContent>
-                {customers.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name} ({c.type})</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          {selectedCustomer && (
-            <p className="text-xs text-muted-foreground">Type: <span className="font-semibold text-primary">{selectedCustomer.type}</span> — Prices adjusted</p>
+            <>
+              <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId}>
+                <SelectTrigger><SelectValue placeholder="Select Customer" /></SelectTrigger>
+                <SelectContent>
+                  {customers.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name} ({c.type})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedCustomer && (
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  {selectedCustomer.phone && <p>Phone: <span className="font-medium text-foreground">{selectedCustomer.phone}</span></p>}
+                  <p>Type: <span className="font-semibold text-primary">{selectedCustomer.type}</span> — Prices adjusted</p>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -196,6 +423,7 @@ const AddSale = () => {
             </div>
             {items.map((item, idx) => (
               <div key={item.productId} className="px-4 py-3 flex items-center border-b border-border last:border-0">
+                {(() => { const img = getImageUrl(products.find(p => p.id === item.productId)?.image); return img ? <img src={img} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 mr-2.5" /> : <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center text-xs font-bold text-muted-foreground flex-shrink-0 mr-2.5">{item.name.slice(0,2).toUpperCase()}</div>; })()}
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm truncate">{item.name}</p>
                   <p className="text-xs text-muted-foreground">{item.quantity} × {formatCurrency(item.unitPrice)} = {formatCurrency(item.quantity * item.unitPrice, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
@@ -238,7 +466,7 @@ const AddSale = () => {
 
         <div className="flex gap-3">
           <button onClick={() => navigate(-1)} className="flex-1 bg-muted text-muted-foreground font-bold py-3.5 rounded-xl">Cancel</button>
-          <button onClick={submit} disabled={!canManageData} className="flex-1 bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-60">Save Sale</button>
+          <button onClick={submit} disabled={!canManageData || saving} className="flex-1 bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-60">{saving ? "Saving..." : "Save Sale"}</button>
         </div>
       </div>
 
@@ -268,12 +496,13 @@ const AddSale = () => {
           </div>
           <div className="space-y-1 overflow-y-auto flex-1">
             {filteredProducts.map((p) => (
-              <button key={p.id} onClick={() => addItem(p)} className="w-full flex items-center justify-between p-3 hover:bg-accent rounded-lg transition-colors" disabled={p.stock <= 0}>
-                <div className="text-left">
-                  <span className="font-medium text-sm">{p.name}</span>
+              <button key={p.id} onClick={() => addItem(p)} className="w-full flex items-center gap-2.5 p-3 hover:bg-accent rounded-lg transition-colors" disabled={p.stock <= 0}>
+                {(() => { const img = getImageUrl(p.image); return img ? <img src={img} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0" /> : <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center text-xs font-bold text-muted-foreground flex-shrink-0">{p.name.slice(0,2).toUpperCase()}</div>; })()}
+                <div className="text-left flex-1 min-w-0">
+                  <span className="font-medium text-sm truncate block">{p.name}</span>
                   <p className="text-xs text-muted-foreground">{p.code} · Stock: {p.stock}</p>
                 </div>
-                <span className={`text-sm font-semibold ${p.stock <= 0 ? "text-destructive" : "text-foreground"}`}>{formatCurrency(getProductPrice(p))}</span>
+                <span className={`text-sm font-semibold flex-shrink-0 ${p.stock <= 0 ? "text-destructive" : "text-foreground"}`}>{formatCurrency(getProductPrice(p))}</span>
               </button>
             ))}
           </div>

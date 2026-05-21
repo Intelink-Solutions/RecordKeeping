@@ -8,10 +8,13 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { fileToBase64, getIconForType } from "@/lib/image-utils";
 import { useDebounce } from "@/hooks/use-debounce";
+import { apiCreateCategory, apiUpdateCategory, apiDeleteCategory } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
+import { useLiveData, showSaved } from "@/hooks/use-live-data";
 
 const Categories = () => {
   const { toast } = useToast();
-  const [categories, setCategories] = useState(store.getCategories());
+  const categories = useLiveData(() => store.getCategories());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
@@ -23,23 +26,40 @@ const Categories = () => {
 
   const filtered = categories.filter(c => c.name.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
-  const add = () => {
+  const [saving, setSaving] = useState(false);
+
+  const add = async () => {
     if (!name.trim()) return;
-    const updated = [...categories, { id: store.nextId(), name: name.trim(), description: desc, icon: icon || undefined }];
-    setCategories(updated); store.saveCategories(updated);
-    setName(""); setDesc(""); setIcon(""); setIconPreview(null); setShowAdd(false);
-    toast({ title: "Category added!" });
+    setSaving(true);
+    try {
+      await apiCreateCategory(name.trim());
+      await syncLiveBusinessData();
+      setName(""); setDesc(""); setIcon(""); setIconPreview(null); setShowAdd(false);
+      showSaved("Category added!");
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to add category", variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editItem) return;
-    const updated = categories.map(c => c.id === editItem.id ? editItem : c);
-    setCategories(updated); store.saveCategories(updated); setEditItem(null);
+    setSaving(true);
+    try {
+      await apiUpdateCategory(editItem.id, editItem.name);
+      await syncLiveBusinessData();
+      setEditItem(null);
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to update category", variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
-  const deleteItem = (id: string) => {
-    const updated = categories.filter(c => c.id !== id);
-    setCategories(updated); store.saveCategories(updated);
+  const deleteItem = async (id: string) => {
+    try {
+      await apiDeleteCategory(id);
+      await syncLiveBusinessData();
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to delete category", variant: "destructive" });
+    }
   };
 
   return (
@@ -96,7 +116,7 @@ const Categories = () => {
             </div>
             <Input placeholder="Name *" value={name} onChange={e => setName(e.target.value)} />
             <Input placeholder="Description" value={desc} onChange={e => setDesc(e.target.value)} />
-            <button onClick={add} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Save</button>
+            <button onClick={add} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Saving..." : "Save"}</button>
           </div>
         </DialogContent>
       </Dialog>
@@ -131,7 +151,7 @@ const Categories = () => {
             </div>
             <Input value={editItem.name} onChange={e => setEditItem({ ...editItem, name: e.target.value })} />
             <Input value={editItem.description || ""} onChange={e => setEditItem({ ...editItem, description: e.target.value })} />
-            <button onClick={saveEdit} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Update</button>
+            <button onClick={saveEdit} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Updating..." : "Update"}</button>
           </div>}
         </DialogContent>
       </Dialog>

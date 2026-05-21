@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Camera, Mail, Phone, Save, ShieldUser, User } from "lucide-react";
+import { Camera, Mail, Phone, Save, ShieldUser, User, LogOut, Loader2 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import PageHeader from "@/components/PageHeader";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { store, UserProfile as UserProfileModel } from "@/lib/store";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/hooks/use-app-context";
-import { apiGetProfile, apiSaveUserProfile } from "@/lib/api";
+import { apiGetProfile, apiSaveUserProfile, apiSignOut } from "@/lib/api";
+import { useNavigate } from "react-router-dom";
 
 const getInitials = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -18,9 +19,11 @@ const getInitials = (name: string) => {
 };
 
 const UserProfile = () => {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const { isOwner, roleLabel } = useAppContext();
   const [profile, setProfile] = useState<UserProfileModel>(store.getUserProfile());
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     const isOnline = store.getBusinessProfile().isOnline;
@@ -58,6 +61,18 @@ const UserProfile = () => {
       }).catch(() => { /* local save already completed */ });
     }
     toast({ title: "Profile Updated", description: "Your user profile has been saved." });
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await apiSignOut();
+    } catch {
+      // Token is cleared in apiSignOut's finally block; continue logout flow.
+    } finally {
+      setLoggingOut(false);
+      navigate("/login", { replace: true });
+    }
   };
 
   return (
@@ -159,6 +174,15 @@ const UserProfile = () => {
           className="w-full bg-primary text-primary-foreground rounded-xl py-3 font-bold text-sm flex items-center justify-center gap-2 shadow-lg disabled:opacity-60"
         >
           <Save size={16} /> Save Profile
+        </button>
+
+        <button
+          onClick={handleLogout}
+          disabled={loggingOut}
+          className="w-full bg-destructive/10 text-destructive border border-destructive/20 rounded-xl py-3 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+        >
+          {loggingOut ? <Loader2 size={16} className="animate-spin" /> : <LogOut size={16} />}
+          {loggingOut ? "Signing out..." : "Sign Out"}
         </button>
       </div>
 

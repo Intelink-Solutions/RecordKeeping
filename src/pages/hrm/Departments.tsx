@@ -3,6 +3,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import CrudListPage from "@/components/CrudListPage";
 import { store, Department } from "@/lib/store";
 import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
+import { apiCreateHrmResourceForm, apiUpdateHrmResourceForm, apiDeleteHrmResource } from "@/lib/api";
 
 const Departments = () => {
   const { items, saveItems } = useHrmLiveList<Department>({
@@ -16,6 +17,10 @@ const Departments = () => {
     title="Department List"
     items={items}
     onSave={saveItems}
+    apiResource="departments"
+    onApiCreate={(data) => apiCreateHrmResourceForm<Department>("departments", data as Record<string, unknown>)}
+    onApiUpdate={(id, data) => apiUpdateHrmResourceForm<Department>("departments", id, data as Record<string, unknown>)}
+    onApiDelete={(id) => apiDeleteHrmResource("departments", id)}
     columns={[
       { key: "name", label: "Name" },
       { key: "description", label: "Description" },
@@ -35,6 +40,10 @@ const Departments = () => {
       </>
     )}
     createDefaults={() => ({ name: "", description: "", status: "Active" as const })}
+    validate={(item) => {
+      if (!item.name?.trim()) return "Department name is required.";
+      return null;
+    }}
     searchKey="name"
     displayName="Department"
   />

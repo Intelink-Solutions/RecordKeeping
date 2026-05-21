@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { Input } from "@/components/ui/input";
-import { Search, Download, Printer, ChevronDown } from "lucide-react";
+import { Search, Download, Printer } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
 
 interface SummaryCard {
@@ -27,7 +27,7 @@ interface ReportPageProps<T> {
   showDateFilter?: boolean;
 }
 
-function ReportPage<T extends Record<string, any>>({
+function ReportPage<T extends Record<string, unknown>>({
   title, data, columns, summaryCards, searchKeys = [], dateKey, showDateFilter = true,
 }: ReportPageProps<T>) {
   const [search, setSearch] = useState("");

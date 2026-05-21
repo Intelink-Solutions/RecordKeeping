@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Bell, CheckCheck, CircleDot } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import PageHeader from "@/components/PageHeader";
+import { emitStoreUpdate, STORE_UPDATED_EVENT } from "@/hooks/use-live-data";
 import { store, AppNotification } from "@/lib/store";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -43,6 +44,26 @@ const toAppNotification = (item: ApiNotificationItem, idx: number): AppNotificat
   };
 };
 
+const mergeNotifications = (local: AppNotification[], remote: AppNotification[]): AppNotification[] => {
+  const map = new Map<string, AppNotification>();
+  [...local, ...remote].forEach((item) => {
+    const existing = map.get(item.id);
+    if (!existing) {
+      map.set(item.id, item);
+      return;
+    }
+    map.set(item.id, {
+      ...existing,
+      ...item,
+      read: existing.read && item.read,
+    });
+  });
+
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+};
+
 const Notifications = () => {
   const { toast } = useToast();
   const [items, setItems] = useState<AppNotification[]>([]);
@@ -55,19 +76,32 @@ const Notifications = () => {
       try {
         const list = await apiGetNotifications();
         const mapped = list.map(toAppNotification);
-        setItems(mapped);
-        setSelectedId((prev) => prev || mapped[0]?.id || "");
-        store.saveNotifications(mapped);
+        const merged = mergeNotifications(store.getNotifications(), mapped);
+        setItems(merged);
+        setSelectedId((prev) => prev || merged[0]?.id || "");
+        store.saveNotifications(merged);
+        emitStoreUpdate();
       } catch {
-        // Backend unavailable — show empty list instead of stale defaults
-        setItems([]);
-        setSelectedId("");
+        const local = store.getNotifications();
+        setItems(local);
+        setSelectedId((prev) => prev || local[0]?.id || "");
       } finally {
         setLoading(false);
       }
     };
 
     fetchNotifications();
+  }, []);
+
+  useEffect(() => {
+    const handleStoreUpdate = () => {
+      const local = store.getNotifications();
+      setItems(local);
+      setSelectedId((prev) => prev || local[0]?.id || "");
+    };
+
+    window.addEventListener(STORE_UPDATED_EVENT, handleStoreUpdate);
+    return () => window.removeEventListener(STORE_UPDATED_EVENT, handleStoreUpdate);
   }, []);
 
   const selected = useMemo(
@@ -80,6 +114,7 @@ const Notifications = () => {
   const persist = (next: AppNotification[]) => {
     setItems(next);
     store.saveNotifications(next);
+    emitStoreUpdate();
   };
 
   const markAsRead = (id: string) => {

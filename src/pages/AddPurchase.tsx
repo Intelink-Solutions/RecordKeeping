@@ -9,15 +9,19 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/hooks/use-app-context";
 import { formatCurrency } from "@/lib/currency";
+import { apiCreatePurchase } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
+import { showSaved, useLiveData } from "@/hooks/use-live-data";
+import { getImageUrl } from "@/lib/image-utils";
 
 const AddPurchase = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { canManageData, roleLabel } = useAppContext();
-  const products = store.getProducts();
-  const suppliers = store.getSuppliers();
-  const categories = store.getCategories();
-  const brands = store.getBrands();
+  const products = useLiveData(() => store.getProducts());
+  const suppliers = useLiveData(() => store.getSuppliers());
+  const categories = useLiveData(() => store.getCategories());
+  const brands = useLiveData(() => store.getBrands());
 
   const [invoiceNo] = useState(store.getNextPurchaseInvoice());
   const [date] = useState(new Date().toISOString().split("T")[0]);
@@ -33,6 +37,7 @@ const AddPurchase = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterBrand, setFilterBrand] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const selectedSupplier = suppliers.find(s => s.id === supplierId);
 
@@ -72,7 +77,7 @@ const AddPurchase = () => {
 
   const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
 
-  const submit = () => {
+  const submit = async () => {
     if (!canManageData) {
       toast({ title: "Permission required", description: "You have view-only access", variant: "destructive" });
       return;
@@ -82,31 +87,48 @@ const AddPurchase = () => {
       toast({ title: "Please select supplier and add items", variant: "destructive" });
       return;
     }
-    const status = dueAmount > 0 ? (receivedAmount > 0 ? "Partial" : "Due") : "Paid";
-    const purchasesList = store.getPurchases();
-    purchasesList.unshift({
-      id: store.nextId(), invoiceNo, date,
-      supplierId, supplierName: selectedSupplier?.name || "",
-      items, subtotal, discount, total,
-      paid: Math.min(receivedAmount, total), due: dueAmount,
-      status, returned: false,
-    });
-    store.savePurchases(purchasesList);
 
-    // Update stock
-    const updatedProducts = products.map(p => {
-      const item = items.find(i => i.productId === p.id);
-      return item ? { ...p, stock: p.stock + item.quantity, costPrice: item.unitPrice } : p;
-    });
-    store.saveProducts(updatedProducts);
+    setSaving(true);
+    try {
+      const paidAmount = Math.min(receivedAmount, total);
 
-    if (selectedSupplier && dueAmount > 0) {
-      const updatedSuppliers = suppliers.map(s => s.id === supplierId ? { ...s, due: s.due + dueAmount } : s);
-      store.saveSuppliers(updatedSuppliers);
+      // Build products payload for backend
+      const apiProducts = items.map(item => {
+        const product = products.find(p => p.id === item.productId);
+        return {
+          product_id: item.productId,
+          quantities: item.quantity,
+          productPurchasePrice: item.unitPrice,
+          productSalePrice: product?.retailPrice || product?.price || 0,
+          productWholeSalePrice: product?.wholesalePrice || 0,
+          productDealerPrice: product?.dealerPrice || 0,
+          profit_percent: product?.profitMargin || 0,
+        };
+      });
+
+      await apiCreatePurchase({
+        party_id: supplierId,
+        products: apiProducts,
+        payments: paidAmount > 0 ? [{ type: "cash", amount: paidAmount }] : [],
+        purchaseDate: date,
+        totalAmount: total,
+        subtotal,
+        discountAmount: discount,
+        dueAmount,
+        paidAmount,
+      });
+
+      // Re-sync from backend to get real data
+      await syncLiveBusinessData();
+
+      showSaved("Purchase saved!");
+      navigate("/purchases");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save purchase";
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
-
-    toast({ title: "Purchase saved!" });
-    navigate("/purchases");
   };
 
   return (
@@ -136,6 +158,7 @@ const AddPurchase = () => {
             <div className="px-4 py-2.5 bg-accent"><span className="text-sm font-semibold">Cart ({items.length})</span></div>
             {items.map((item, idx) => (
               <div key={item.productId} className="px-4 py-3 flex items-center border-b border-border last:border-0">
+                {(() => { const img = getImageUrl(products.find(p => p.id === item.productId)?.image); return img ? <img src={img} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 mr-2.5" /> : <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center text-xs font-bold text-muted-foreground flex-shrink-0 mr-2.5">{item.name.slice(0,2).toUpperCase()}</div>; })()}
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm truncate">{item.name}</p>
                   <p className="text-xs text-muted-foreground">{item.quantity} × {formatCurrency(item.unitPrice)} = {formatCurrency(item.quantity * item.unitPrice, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
@@ -164,7 +187,7 @@ const AddPurchase = () => {
 
         <div className="flex gap-3">
           <button onClick={() => navigate(-1)} className="flex-1 bg-muted text-muted-foreground font-bold py-3.5 rounded-xl">Cancel</button>
-          <button onClick={submit} disabled={!canManageData} className="flex-1 bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-60">Save</button>
+          <button onClick={submit} disabled={!canManageData || saving} className="flex-1 bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-60">{saving ? "Saving..." : "Save"}</button>
         </div>
       </div>
 
@@ -179,9 +202,10 @@ const AddPurchase = () => {
           </div>
           <div className="space-y-1 overflow-y-auto flex-1">
             {filteredProducts.map(p => (
-              <button key={p.id} onClick={() => selectProduct(p)} className="w-full flex items-center justify-between p-3 hover:bg-accent rounded-lg">
-                <div className="text-left"><span className="font-medium text-sm">{p.name}</span><p className="text-xs text-muted-foreground">{p.code}</p></div>
-                <span className="text-sm font-semibold">{formatCurrency(p.costPrice)}</span>
+              <button key={p.id} onClick={() => selectProduct(p)} className="w-full flex items-center gap-2.5 p-3 hover:bg-accent rounded-lg">
+                {(() => { const img = getImageUrl(p.image); return img ? <img src={img} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0" /> : <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center text-xs font-bold text-muted-foreground flex-shrink-0">{p.name.slice(0,2).toUpperCase()}</div>; })()}
+                <div className="text-left flex-1 min-w-0"><span className="font-medium text-sm truncate block">{p.name}</span><p className="text-xs text-muted-foreground">{p.code}</p></div>
+                <span className="text-sm font-semibold flex-shrink-0">{formatCurrency(p.costPrice)}</span>
               </button>
             ))}
           </div>

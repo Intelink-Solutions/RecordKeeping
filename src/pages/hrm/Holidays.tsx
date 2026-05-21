@@ -2,6 +2,7 @@ import { Input } from "@/components/ui/input";
 import CrudListPage from "@/components/CrudListPage";
 import { store, Holiday } from "@/lib/store";
 import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
+import { apiCreateHrmResourceForm, apiUpdateHrmResourceForm, apiDeleteHrmResource } from "@/lib/api";
 
 const Holidays = () => {
   const { items, saveItems } = useHrmLiveList<Holiday>({
@@ -15,6 +16,10 @@ const Holidays = () => {
     title="Holiday List"
     items={items}
     onSave={saveItems}
+    apiResource="holidays"
+    onApiCreate={(data) => apiCreateHrmResourceForm<Holiday>("holidays", data as Record<string, unknown>)}
+    onApiUpdate={(id, data) => apiUpdateHrmResourceForm<Holiday>("holidays", id, data as Record<string, unknown>)}
+    onApiDelete={(id) => apiDeleteHrmResource("holidays", id)}
     columns={[
       { key: "name", label: "Name" },
       { key: "date", label: "Date" },
@@ -31,6 +36,11 @@ const Holidays = () => {
       </>
     )}
     createDefaults={() => ({ name: "", date: "", description: "" })}
+    validate={(item) => {
+      if (!item.name?.trim()) return "Holiday name is required.";
+      if (!item.date) return "Date is required.";
+      return null;
+    }}
     searchKey="name"
     displayName="Holiday"
   />

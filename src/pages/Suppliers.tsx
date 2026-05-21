@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, Search, Edit, Trash2 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { store, Supplier } from "@/lib/store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -9,38 +10,80 @@ import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/hooks/use-app-context";
 import { formatCurrency } from "@/lib/currency";
 import { useDebounce } from "@/hooks/use-debounce";
+import { apiCreateParty, apiUpdateParty, apiDeleteParty } from "@/lib/api";
+import { syncLiveBusinessData } from "@/lib/live-sync";
+import { useLiveData, showSaved } from "@/hooks/use-live-data";
 
 const Suppliers = () => {
   const { toast } = useToast();
   const { canManageData, roleLabel } = useAppContext();
-  const [suppliers, setSuppliers] = useState(store.getSuppliers());
+  const suppliers = useLiveData(() => store.getSuppliers());
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", initialDue: "0" });
 
   const filtered = suppliers.filter(s => s.name.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
-  const addSupplier = () => {
+  const [saving, setSaving] = useState(false);
+
+  const addSupplier = async () => {
     if (!form.name.trim()) return;
-    const due = Number(form.initialDue) || 0;
-    const updated = [...suppliers, { id: store.nextId(), name: form.name.trim(), phone: form.phone, email: form.email, address: form.address, initialDue: due, due }];
-    setSuppliers(updated); store.saveSuppliers(updated);
-    setForm({ name: "", phone: "", email: "", address: "", initialDue: "0" }); setShowAdd(false);
-    toast({ title: "Supplier added!" });
+    setSaving(true);
+    try {
+      const due = Number(form.initialDue) || 0;
+      await apiCreateParty({
+        name: form.name.trim(),
+        type: "Supplier",
+        phone: form.phone || undefined,
+        email: form.email || undefined,
+        address: form.address || undefined,
+        opening_balance: due,
+        opening_balance_type: "due",
+      });
+      await syncLiveBusinessData();
+      setForm({ name: "", phone: "", email: "", address: "", initialDue: "0" }); setShowAdd(false);
+      showSaved("Supplier added!");
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to add supplier", variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editSupplier) return;
-    const updated = suppliers.map(s => s.id === editSupplier.id ? editSupplier : s);
-    setSuppliers(updated); store.saveSuppliers(updated);
-    setEditSupplier(null);
+    setSaving(true);
+    try {
+      await apiUpdateParty(editSupplier.id, {
+        name: editSupplier.name,
+        type: "Supplier",
+        phone: editSupplier.phone || undefined,
+        email: editSupplier.email || undefined,
+        address: editSupplier.address || undefined,
+      });
+      await syncLiveBusinessData();
+      setEditSupplier(null);
+      showSaved("Supplier updated!");
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to update supplier", variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
-  const deleteSupplier = (id: string) => {
-    const updated = suppliers.filter(s => s.id !== id);
-    setSuppliers(updated); store.saveSuppliers(updated);
+  const executeDeleteSupplier = async () => {
+    if (!confirmDeleteId) return;
+    setDeleting(true);
+    try {
+      await apiDeleteParty(confirmDeleteId);
+      await syncLiveBusinessData();
+      showSaved("Supplier deleted");
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to delete supplier", variant: "destructive" });
+    } finally {
+      setDeleting(false);
+      setConfirmDeleteId(null);
+    }
   };
 
   return (
@@ -67,7 +110,7 @@ const Suppliers = () => {
               {canManageData && (
                 <>
                   <button onClick={() => setEditSupplier(s)} className="p-1"><Edit size={14} className="text-muted-foreground" /></button>
-                  <button onClick={() => deleteSupplier(s.id)} className="p-1"><Trash2 size={14} className="text-destructive" /></button>
+                  <button onClick={() => setConfirmDeleteId(s.id)} className="p-1"><Trash2 size={14} className="text-destructive" /></button>
                 </>
               )}
             </div>
@@ -88,7 +131,7 @@ const Suppliers = () => {
             <Input placeholder="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
             <Input placeholder="Address" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} />
             <Input placeholder="Initial Due" type="number" value={form.initialDue} onChange={e => setForm({ ...form, initialDue: e.target.value })} />
-            <button onClick={addSupplier} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Save</button>
+            <button onClick={addSupplier} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Saving..." : "Save"}</button>
           </div>
         </DialogContent>
       </Dialog>
@@ -100,11 +143,20 @@ const Suppliers = () => {
             <div className="space-y-3">
               <Input value={editSupplier.name} onChange={e => setEditSupplier({ ...editSupplier, name: e.target.value })} />
               <Input value={editSupplier.phone || ""} onChange={e => setEditSupplier({ ...editSupplier, phone: e.target.value })} placeholder="Phone" />
-              <button onClick={saveEdit} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl">Update</button>
+              <button onClick={saveEdit} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Updating..." : "Update"}</button>
             </div>
           )}
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        title="Delete Supplier"
+        message="Are you sure you want to delete this supplier? This action cannot be undone."
+        onConfirm={executeDeleteSupplier}
+        onCancel={() => setConfirmDeleteId(null)}
+        loading={deleting}
+      />
+
       <BottomNav />
     </div>
   );

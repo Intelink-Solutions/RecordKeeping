@@ -26,14 +26,21 @@ export function getImageUrl(imageData?: string): string | null {
     return imageData;
   }
   
-  // If it looks like a relative path or filename, construct the backend URL
-  // Adjust this based on your actual backend URL structure
-  const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
-  if (backendUrl && imageData) {
-    return `${backendUrl}/uploads/${imageData}`;
+  // Build the backend base URL from environment or known production URL
+  const backendUrl = (
+    import.meta.env.VITE_BACKEND_URL ||
+    (import.meta.env.DEV ? '' : 'https://keydoctors.veewiss.com')
+  ).replace(/\/+$/, '');
+
+  // Files are stored in public/uploads/YY/MM/file.ext and served at /uploads/...
+  const cleanPath = imageData.replace(/^\/+/, '');
+
+  if (backendUrl) {
+    return `${backendUrl}/${cleanPath}`;
   }
-  
-  return imageData || null;
+
+  // Dev mode: relative path goes through Vite proxy → /uploads/... or /files/...
+  return `/${cleanPath}`;
 }
 
 /**

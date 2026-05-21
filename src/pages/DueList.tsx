@@ -7,10 +7,11 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/currency";
+import { useLiveData } from "@/hooks/use-live-data";
 
 const DueList = () => {
-  const customers = store.getCustomers();
-  const suppliers = store.getSuppliers();
+  const customers = useLiveData(() => store.getCustomers());
+  const suppliers = useLiveData(() => store.getSuppliers());
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
   const [partyType, setPartyType] = useState("all");
