@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { store, BusinessProfile } from "@/lib/store";
-import { Building2, Phone, Mail, MapPin, Moon, Sun, Save, Camera, DollarSign, HelpCircle, Shield, Bell, LogOut, Loader2, Wifi, WifiOff, Users, Send } from "lucide-react";
+import { Building2, Phone, Mail, MapPin, Moon, Sun, Save, Camera, DollarSign, HelpCircle, Shield, Bell, LogOut, Loader2, Wifi, WifiOff, Users, Send, Server, Trash2, Palette, RotateCcw, Check, Tag, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { apiSignOut, apiGetBusinessProfile, apiSaveBusinessProfile, apiSendPushNotification, apiGet } from "@/lib/api";
@@ -15,6 +15,12 @@ import { loadAlertPrefs } from "@/lib/alert-notifications";
 import { initializeMobilePush } from "@/lib/mobile-push";
 import { useAppContext } from "@/hooks/use-app-context";
 import { SecurityPrefs, loadSecurityPrefs, saveSecurityPrefs, hasPinSet, savePin, clearPin, verifyPin } from "@/lib/security";
+import { validateOptionalEmail, validateOptionalPhone } from "@/lib/validators";
+import { getAppBrandName } from "@/lib/app-branding";
+import {
+  THEME_PRESETS, DEFAULT_THEME_HEX, applyThemeColor, saveThemeColor, loadThemeColor,
+  clearThemeColor, isValidHexColor,
+} from "@/lib/theme-color";
 
 type AlertPrefs = {
   lowStock: boolean;
@@ -53,11 +59,16 @@ const Settings = () => {
   const { isOwner, roleLabel } = useAppContext();
   const [profile, setProfile] = useState<BusinessProfile>(store.getBusinessProfile());
   const [logoPreview, setLogoPreview] = useState<string>(profile.logo || "");
+  // Raw File for upload — kept separate from `logoPreview` (a base64 data URL
+  // used only for instant local display); only set when the owner picks a
+  // new image this session, since the backend needs an actual file upload.
+  const [logoFile, setLogoFile] = useState<File | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [showAlertDialog, setShowAlertDialog] = useState(false);
   const [showSecurityDialog, setShowSecurityDialog] = useState(false);
   const [showHelpDialog, setShowHelpDialog] = useState(false);
   const [showPushDialog, setShowPushDialog] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [alerts, setAlerts] = useState<AlertPrefs>(() => loadPrefs(ALERT_PREFS_KEY, defaultAlertPrefs));
   const [security, setSecurity] = useState<SecurityPrefs>(() => loadSecurityPrefs());
   const [pinSet, setPinSet] = useState(() => hasPinSet());
@@ -74,6 +85,9 @@ const Settings = () => {
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
   const [staffLoading, setStaffLoading] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  // Read-only display — the API base URL can no longer be edited from Settings (security).
+  const serverUrl = localStorage.getItem("pos_api_base_url") ?? "https://keydoctors.veewiss.com/api/v1";
+  const [themeColor, setThemeColor] = useState<string>(() => loadThemeColor() ?? DEFAULT_THEME_HEX);
   const ownerEmail = (profile.email || "").trim();
   const ownerPhone = (profile.phone || "").trim();
 
@@ -96,7 +110,6 @@ const Settings = () => {
       setProfile(updated);
       setLogoPreview(updated.logo || "");
     }).catch(() => { /* offline or endpoint unavailable — keep local */ });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -118,21 +131,33 @@ const Settings = () => {
     void loadStaffUsers();
   }, [showPushDialog, isOwner]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!isOwner) {
       toast({ title: "Permission required", description: "Only Shop Owner can update settings", variant: "destructive" });
       return;
     }
+    const emailError = validateOptionalEmail(profile.email);
+    if (emailError) { toast({ title: emailError, variant: "destructive" }); return; }
+    const phoneError = validateOptionalPhone(profile.phone);
+    if (phoneError) { toast({ title: phoneError, variant: "destructive" }); return; }
     const updated = { ...profile, logo: logoPreview };
     store.saveBusinessProfile(updated);
     if (updated.isOnline) {
-      apiSaveBusinessProfile({
-        company_name: updated.companyName,
-        address: updated.address,
-        phone: updated.phone,
-        email: updated.email,
-        logo: updated.logo,
-      }).catch(() => { /* save locally; backend sync failed */ });
+      try {
+        await apiSaveBusinessProfile({
+          businessId: updated.businessId,
+          company_name: updated.companyName,
+          address: updated.address,
+          phone: updated.phone,
+          logoFile: logoFile ?? undefined,
+        });
+        setLogoFile(null);
+        toast({ title: "Settings Saved", description: "Business profile updated successfully." });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Saved locally, but the server update failed.";
+        toast({ title: "Saved locally only", description: msg, variant: "destructive" });
+      }
+      return;
     }
     toast({ title: "Settings Saved", description: "Business profile updated successfully." });
   };
@@ -140,6 +165,7 @@ const Settings = () => {
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setLogoFile(file);
     const reader = new FileReader();
     reader.onloadend = () => {
       setLogoPreview(reader.result as string);
@@ -155,6 +181,26 @@ const Settings = () => {
       document.documentElement.classList.remove("dark");
     }
     store.saveBusinessProfile({ ...profile, darkMode: checked, logo: logoPreview });
+  };
+
+  const changeThemeColor = (hex: string) => {
+    if (!isOwner) {
+      toast({ title: "Permission required", description: "Only Shop Owner can change the theme color", variant: "destructive" });
+      return;
+    }
+    if (!isValidHexColor(hex)) return;
+    setThemeColor(hex);
+    applyThemeColor(hex);
+    saveThemeColor(hex);
+  };
+
+  const resetThemeColor = () => {
+    if (!isOwner) {
+      toast({ title: "Permission required", description: "Only Shop Owner can change the theme color", variant: "destructive" });
+      return;
+    }
+    setThemeColor(DEFAULT_THEME_HEX);
+    clearThemeColor();
   };
 
   const toggleOnlineMode = (checked: boolean) => {
@@ -268,7 +314,7 @@ const Settings = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Settings" showBack={false} />
       <div className="px-4 py-4 space-y-5">
         {!isOwner && (
@@ -290,6 +336,67 @@ const Settings = () => {
           </div>
         </div>
 
+        {/* Theme Color */}
+        <div className="bg-card rounded-xl p-4 shadow-sm border border-border">
+          <div className="flex items-center gap-3 mb-3">
+            <Palette size={20} className="text-primary" />
+            <div className="flex-1">
+              <p className="font-semibold text-sm">Theme Color</p>
+              <p className="text-xs text-muted-foreground">Pick a brand color for the whole app</p>
+            </div>
+            {themeColor.toLowerCase() !== DEFAULT_THEME_HEX.toLowerCase() && (
+              <button
+                onClick={resetThemeColor}
+                disabled={!isOwner}
+                className="p-1.5 rounded-lg hover:bg-muted disabled:opacity-40"
+                aria-label="Reset to default color"
+                title="Reset to default"
+              >
+                <RotateCcw size={15} className="text-muted-foreground" />
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2.5">
+            {THEME_PRESETS.map((preset) => {
+              const selected = themeColor.toLowerCase() === preset.hex.toLowerCase();
+              return (
+                <button
+                  key={preset.hex}
+                  onClick={() => changeThemeColor(preset.hex)}
+                  disabled={!isOwner}
+                  aria-label={preset.name}
+                  title={preset.name}
+                  className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-50"
+                  style={{
+                    background: preset.hex,
+                    boxShadow: selected ? `0 0 0 2px hsl(var(--card)), 0 0 0 4px ${preset.hex}` : undefined,
+                  }}
+                >
+                  {selected && <Check size={16} className="text-white drop-shadow" strokeWidth={3} />}
+                </button>
+              );
+            })}
+            {/* Custom color swatch — opens the native color picker */}
+            <label
+              className="relative w-9 h-9 rounded-full shrink-0 border-2 border-dashed border-muted-foreground/40 flex items-center justify-center cursor-pointer overflow-hidden"
+              title="Custom color"
+            >
+              {THEME_PRESETS.every((p) => p.hex.toLowerCase() !== themeColor.toLowerCase()) ? (
+                <div className="absolute inset-0 rounded-full" style={{ background: themeColor }} />
+              ) : (
+                <Palette size={14} className="text-muted-foreground" />
+              )}
+              <input
+                type="color"
+                value={themeColor}
+                onChange={(e) => changeThemeColor(e.target.value)}
+                disabled={!isOwner}
+                className="absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed"
+              />
+            </label>
+          </div>
+        </div>
+
         {/* Online/Offline Toggle */}
         <div className="bg-card rounded-xl p-4 shadow-sm border border-border">
           <div className="flex items-center justify-between">
@@ -308,6 +415,29 @@ const Settings = () => {
               </span>
               <Switch checked={profile.isOnline} onCheckedChange={toggleOnlineMode} disabled={!isOwner} />
             </div>
+          </div>
+        </div>
+
+        {/* Server Connection */}
+        <div className="bg-card rounded-xl p-4 shadow-sm border border-border space-y-3">
+          <div className="flex items-center gap-2">
+            <Server size={18} className="text-primary" />
+            <h2 className="font-bold text-sm">Server Connection</h2>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
+              <Server size={12} /> API Server URL
+            </Label>
+            <Input
+              value={serverUrl}
+              readOnly
+              disabled
+              className="cursor-not-allowed"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">
+              <Lock size={10} className="shrink-0" />
+              Locked for security — the {getAppBrandName(profile)} backend address can't be changed from within the app.
+            </p>
           </div>
         </div>
 
@@ -334,6 +464,21 @@ const Settings = () => {
           </div>
 
           <div className="space-y-3">
+            <div>
+              <Label className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
+                <Tag size={12} /> Short App Name
+              </Label>
+              <Input
+                value={profile.shortName}
+                onChange={(e) => setProfile({ ...profile, shortName: e.target.value })}
+                placeholder="e.g. Doctors Pharmacy"
+                maxLength={24}
+                disabled={!isOwner}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Shown as your app name after you sign in. Leave blank to use the default "RecordKEEPING" branding.
+              </p>
+            </div>
             <div>
               <Label className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
                 <Building2 size={12} /> Company Name
@@ -391,6 +536,23 @@ const Settings = () => {
           <Save size={16} /> Save Settings
         </button>
 
+        {/* Clear App Data */}
+        <div className="bg-card rounded-xl p-4 shadow-sm border border-destructive/20">
+          <div className="flex items-center gap-3 mb-3">
+            <Trash2 size={20} className="text-destructive" />
+            <div>
+              <p className="font-semibold text-sm">Clear App Data</p>
+              <p className="text-xs text-muted-foreground">Remove all cached data. Your account and settings are kept.</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowClearConfirm(true)}
+            className="w-full bg-destructive/10 text-destructive border border-destructive/20 rounded-xl py-2.5 font-semibold text-sm"
+          >
+            Clear Cached Data
+          </button>
+        </div>
+
         {/* Logout */}
         <button
           onClick={handleLogout}
@@ -416,8 +578,8 @@ const Settings = () => {
               onChange={(value) => updateAlerts({ ...alerts, lowStock: value })}
             />
             <PrefSwitch
-              title="Due payment reminders"
-              subtitle="Remind about customer/supplier dues"
+              title="Debt payment reminders"
+              subtitle="Remind about customer/supplier debts"
               checked={alerts.duePayments}
               onChange={(value) => updateAlerts({ ...alerts, duePayments: value })}
             />
@@ -717,6 +879,37 @@ const Settings = () => {
           </div>
         </DialogContent>
       </Dialog>
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear App Data?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This will remove all locally cached products, sales, purchases, and reports. Your account, settings, and server data are not affected.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowClearConfirm(false)}
+                className="flex-1 bg-muted text-muted-foreground font-semibold py-2.5 rounded-xl text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  store.clearAllAppData();
+                  setShowClearConfirm(false);
+                  toast({ title: "App data cleared", description: "Cache removed. Data will reload from server." });
+                }}
+                className="flex-1 bg-destructive text-destructive-foreground font-semibold py-2.5 rounded-xl text-sm"
+              >
+                Clear Now
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <BottomNav />
     </div>
   );

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -7,119 +7,148 @@
 @layer base {
   :root {
     --background: 0 0% 97%;
-    --foreground: 0 0% 13%;
-
+    --foreground: 4 15% 8%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 13%;
-
+    --card-foreground: 4 15% 8%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 13%;
-
-    --primary: 48 100% 50%;
-    --primary-foreground: 0 0% 10%;
-
+    --popover-foreground: 4 15% 8%;
+    --primary: 49 100% 47%;
+    --primary-foreground: 4 15% 8%;
     --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 13%;
-
+    --secondary-foreground: 4 15% 8%;
     --muted: 0 0% 96%;
     --muted-foreground: 0 0% 45%;
-
-    --accent: 48 100% 95%;
-    --accent-foreground: 48 100% 35%;
-
+    --accent: 49 100% 94%;
+    --accent-foreground: 49 100% 28%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-
-    --border: 0 0% 91%;
-    --input: 0 0% 91%;
-    --ring: 48 100% 50%;
-
-    --radius: 0.75rem;
-
-    --success: 142 71% 45%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 49 100% 47%;
+    --radius: 0.625rem;
+    --nav-bg: 5 37% 10%;
+    --nav-foreground: 0 0% 95%;
+    --nav-active: 49 100% 47%;
+    --nav-active-foreground: 4 15% 8%;
+    --nav-muted: 0 0% 65%;
+    --success: 142 71% 42%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
     --info: 217 91% 60%;
     --info-foreground: 0 0% 100%;
-
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
+  /* Neutral slate dark mode — deliberately hue-free (unlike the old
+     maroon-tinted dark theme) so it pairs cleanly with any brand color a
+     shop owner picks via Settings → Theme Color, not just the default gold. */
   .dark {
-    --background: 222 47% 8%;
-    --foreground: 210 40% 95%;
-
-    --card: 222 47% 11%;
-    --card-foreground: 210 40% 95%;
-
-    --popover: 222 47% 11%;
-    --popover-foreground: 210 40% 95%;
-
-    --primary: 48 100% 50%;
-    --primary-foreground: 0 0% 10%;
-
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 95%;
-
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 55%;
-
-    --accent: 48 100% 15%;
-    --accent-foreground: 48 100% 85%;
-
-    --destructive: 0 63% 45%;
+    --background: 222 20% 7%;
+    --foreground: 0 0% 94%;
+    --card: 222 18% 11%;
+    --card-foreground: 0 0% 94%;
+    --popover: 222 18% 11%;
+    --popover-foreground: 0 0% 94%;
+    --primary: 49 100% 47%;
+    --primary-foreground: 4 15% 8%;
+    --secondary: 222 14% 16%;
+    --secondary-foreground: 0 0% 94%;
+    --muted: 222 14% 16%;
+    --muted-foreground: 0 0% 62%;
+    --accent: 49 60% 16%;
+    --accent-foreground: 49 100% 78%;
+    --destructive: 0 70% 52%;
     --destructive-foreground: 0 0% 100%;
-
-    --border: 217 33% 20%;
-    --input: 217 33% 20%;
-    --ring: 48 100% 50%;
-
-    --success: 142 71% 35%;
+    --border: 222 14% 19%;
+    --input: 222 14% 19%;
+    --ring: 49 100% 47%;
+    --nav-bg: 222 18% 11%;
+    --nav-foreground: 0 0% 90%;
+    --nav-active: 49 100% 47%;
+    --nav-active-foreground: 4 15% 8%;
+    --nav-muted: 0 0% 58%;
+    --success: 142 65% 42%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 45%;
+    --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
-    --info: 217 91% 50%;
+    --info: 217 91% 60%;
     --info-foreground: 0 0% 100%;
-
-    --sidebar-background: 222 47% 10%;
-    --sidebar-foreground: 210 40% 95%;
-    --sidebar-primary: 48 100% 50%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-accent-foreground: 210 40% 95%;
-    --sidebar-border: 217 33% 20%;
-    --sidebar-ring: 48 100% 50%;
   }
 }
 
 @layer base {
   * {
     @apply border-border;
+    box-sizing: border-box;
   }
 
+  /* Do NOT set overflow on html — kills vertical scroll on iOS Safari */
   html {
-    /* Bump base from 16px → 17px so all rem-scaled Tailwind classes read ~6% larger */
-    font-size: 17px;
+    font-size: 16px;
+    height: 100%;
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    /* Ensure minimum tap target legibility */
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', sans-serif;
     -webkit-text-size-adjust: 100%;
+    /* Natural scroll: let body grow with content and overflow vertically */
+    min-height: 100%;
+    /* Prevent horizontal scroll at body level without breaking vertical */
+    max-width: 100vw;
+    overflow-x: clip;
+  }
+
+  h1, h2, h3 {
+    text-wrap: balance;
   }
 }
 
 @layer utilities {
+  /* Safe-area helpers */
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* safe-top: includes a minimum 8px breathing room above the header
+     so the gold stripe never sits flush against the status bar on non-notch devices. */
+  .safe-top {
+    padding-top: max(env(safe-area-inset-top, 0px), 8px);
+  }
+
+  /* Page bottom clearance for the floating bottom nav (66px bar + ~14px
+     bottom margin + room for the elevated center FAB) + safe area.
+     Apply to every page's outermost wrapper div. */
+  .pb-nav {
+    padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ── Responsive phone-column layout ──────────────────────────────────────────
+   On sm+ screens the app appears as a centred phone column.
+   `transform: translateZ(0)` makes #root the containing block for
+   `position: fixed` children so the nav bars stay inside the column. */
+@media (min-width: 640px) {
+  html {
+    background: #0a0a0a;
+  }
+
+  #root {
+    max-width: 480px;
+    margin: 0 auto;
+    min-height: 100vh;
+    position: relative;
+    transform: translateZ(0);
+    box-shadow:
+      0 0 0 1px rgba(242, 197, 0, 0.1),
+      0 0 80px rgba(0, 0, 0, 0.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

@@ -10,10 +10,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/hooks/use-app-context";
 import { formatCurrency } from "@/lib/currency";
 import InvoiceModal from "@/components/InvoiceModal";
-import { apiCreateSale } from "@/lib/api";
+import { apiCreateSale, NetworkDownError } from "@/lib/api";
+import { enqueueOfflineOp } from "@/lib/offline-queue";
 import { syncLiveBusinessData } from "@/lib/live-sync";
-import { useLiveData, showSaved } from "@/hooks/use-live-data";
+import { useLiveData, showSaved, emitStoreUpdate } from "@/hooks/use-live-data";
 import { getImageUrl } from "@/lib/image-utils";
+import { validateOptionalPhone } from "@/lib/validators";
 
 // ── Phone contact picker ────────────────────────────────────────────────────
 type PhoneContact = { name: string; phone: string };
@@ -52,7 +54,9 @@ const PhoneContactInput = ({
     setContacts(list);
     try {
       sessionStorage.setItem(CONTACTS_SESSION_KEY, JSON.stringify(list));
-    } catch {}
+    } catch {
+      // sessionStorage may be unavailable (private mode, quota exceeded) — caching is best-effort
+    }
   }
 
   // Load ALL contacts so the user can search by typing
@@ -222,7 +226,6 @@ const AddSale = () => {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterBrand, setFilterBrand] = useState("");
   const [savedSale, setSavedSale] = useState<ReturnType<typeof store.getSales>[number] | null>(null);
-  const [saving, setSaving] = useState(false);
 
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
 
@@ -252,12 +255,24 @@ const AddSale = () => {
   const dueAmount = receivedAmount < total ? total - receivedAmount : 0;
 
   const addItem = (p: Product) => {
-    if (items.find((i) => i.productId === p.id)) return;
+    if (items.find((i) => i.productId === p.id)) {
+      toast({ title: "Already in cart", description: "Adjust the quantity from the cart below instead." });
+      setShowPicker(false);
+      return;
+    }
     if (p.stock <= 0) {
       toast({ title: "Out of stock!", variant: "destructive" });
       return;
     }
     const price = getProductPrice(p);
+    if (!price || price <= 0) {
+      toast({
+        title: "No sale price set",
+        description: "Set a sale price for this product before selling it.",
+        variant: "destructive",
+      });
+      return;
+    }
     setItems([...items, { productId: p.id, name: p.name, quantity: 1, unitPrice: price, discount: 0 }]);
     setShowPicker(false);
   };
@@ -295,6 +310,14 @@ const AddSale = () => {
       return;
     }
 
+    if (customerType === "guest" && guestPhone.trim()) {
+      const phoneError = validateOptionalPhone(guestPhone);
+      if (phoneError) {
+        toast({ title: phoneError, variant: "destructive" });
+        return;
+      }
+    }
+
     if (customerType === "guest" && dueAmount > 0) {
       toast({
         title: "Guest due sale not allowed",
@@ -304,65 +327,73 @@ const AddSale = () => {
       return;
     }
 
-    setSaving(true);
-    try {
-      // Build products payload for backend
-      const apiProducts = items.map(item => {
-        const product = products.find(p => p.id === item.productId);
-        return {
-          product_id: item.productId,
-          stock_id: product?.stockId || "",
-          quantities: item.quantity,
-          price: item.unitPrice,
-          discount: item.discount || 0,
-          product_name: item.name,
-        };
-      });
+    // Resolve branch FIRST — must come before any object that uses it
+    const effectiveBranchId = store.getEffectiveBranchId();
 
-      const paidAmount = Math.min(receivedAmount, total);
-      const partyId = customerType === "registered" && selectedCustomerId ? selectedCustomerId : null;
+    const paidAmount = Math.min(receivedAmount, total);
+    const partyId = customerType === "registered" && selectedCustomerId ? selectedCustomerId : null;
 
-      await apiCreateSale({
-        party_id: partyId,
-        vat_id: null,
-        products: apiProducts,
-        payments: paidAmount > 0 ? [{ type: "cash", amount: paidAmount }] : [],
-        saleDate: date,
-        totalAmount: total,
-        dueAmount,
-        paidAmount,
-        isPaid: dueAmount <= 0,
-        discountAmount: discount,
-      });
+    const customerName = customerType === "guest" ? "Guest" : (selectedCustomer?.name || "Guest");
+    const profit = items.reduce((s, item) => {
+      const product = products.find(p => p.id === item.productId);
+      return s + ((item.unitPrice - (product?.costPrice || 0)) * item.quantity - item.discount);
+    }, 0);
+    const status = dueAmount > 0 ? (receivedAmount > 0 ? "Partial" : "Due") : "Paid";
 
-      // Re-sync from backend to get real data
-      await syncLiveBusinessData();
+    // Build local display object
+    const displaySale = {
+      id: store.nextId(), invoiceNo, date,
+      branchId: effectiveBranchId || undefined,
+      customerId: customerType === "guest" ? "0" : selectedCustomerId,
+      customerName, customerPhone: customerType === "guest" ? (guestPhone.trim() || undefined) : selectedCustomer?.phone,
+      items, subtotal, vat: vatAmount, vatPercent, discount, total,
+      paid: paidAmount, due: dueAmount, change: changeAmount,
+      profit, status: status as "Paid" | "Due" | "Partial", returned: false,
+    };
 
-      // Build local sale object for the invoice modal
-      const customerName = customerType === "guest" ? "Guest" : (selectedCustomer?.name || "Guest");
-      const profit = items.reduce((s, item) => {
-        const product = products.find(p => p.id === item.productId);
-        return s + ((item.unitPrice - (product?.costPrice || 0)) * item.quantity - item.discount);
-      }, 0);
-      const status = dueAmount > 0 ? (receivedAmount > 0 ? "Partial" : "Due") : "Paid";
+    // ── Instant local save — show success immediately ─────────────────────────
+    store.saveSales([displaySale, ...store.getSales()]);
+    emitStoreUpdate();
+    showSaved("Sale completed!");
+    setSavedSale(displaySale);
 
-      const displaySale = {
-        id: store.nextId(), invoiceNo, date,
-        customerId: customerType === "guest" ? "0" : selectedCustomerId,
-        customerName, customerPhone: customerType === "guest" ? (guestPhone.trim() || undefined) : selectedCustomer?.phone,
-        items, subtotal, vat: vatAmount, vatPercent, discount, total,
-        paid: paidAmount, due: dueAmount, change: changeAmount,
-        profit, status: status as "Paid" | "Due" | "Partial", returned: false,
+    // Build API payload
+    const apiProducts = items.map(item => {
+      const product = products.find(p => p.id === item.productId);
+      return {
+        product_id: item.productId,
+        stock_id: product?.stockId || "",
+        quantities: item.quantity,
+        price: item.unitPrice,
+        discount: item.discount || 0,
+        product_name: item.name,
       };
+    });
+    const salePayload = {
+      party_id: partyId,
+      vat_id: null,
+      branch_id: effectiveBranchId ?? null,
+      products: apiProducts,
+      payments: paidAmount > 0 ? [{ type: "cash", amount: paidAmount }] : [],
+      saleDate: date,
+      totalAmount: total,
+      dueAmount,
+      paidAmount,
+      isPaid: dueAmount <= 0,
+      discountAmount: discount,
+    };
 
-      showSaved("Sale completed successfully!");
-      setSavedSale(displaySale);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to save sale";
-      toast({ title: "Error", description: msg, variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
+    // ── Background sync — fire-and-forget ─────────────────────────────────────
+    apiCreateSale(salePayload)
+      .then(() => { syncLiveBusinessData().catch(() => {}); })
+      .catch((err) => {
+        if (err instanceof NetworkDownError) {
+          enqueueOfflineOp("POST", "/sales", salePayload as unknown as Record<string, unknown>);
+        } else {
+          const msg = err instanceof Error ? err.message : "Sync failed";
+          toast({ title: "Sale sync issue", description: msg, variant: "destructive" });
+        }
+      });
   };
 
   return (
@@ -461,12 +492,12 @@ const AddSale = () => {
             <Input type="number" value={receivedAmount} onChange={(e) => setReceivedAmount(Number(e.target.value))} className="w-24 h-8 text-right text-sm" />
           </div>
           {changeAmount > 0 && <Row label="Change" value={formatCurrency(changeAmount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-success" />}
-          {dueAmount > 0 && <Row label="Due" value={formatCurrency(dueAmount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-destructive" />}
+          {dueAmount > 0 && <Row label="Debt" value={formatCurrency(dueAmount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-destructive" />}
         </div>
 
         <div className="flex gap-3">
           <button onClick={() => navigate(-1)} className="flex-1 bg-muted text-muted-foreground font-bold py-3.5 rounded-xl">Cancel</button>
-          <button onClick={submit} disabled={!canManageData || saving} className="flex-1 bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-60">{saving ? "Saving..." : "Save Sale"}</button>
+          <button onClick={submit} disabled={!canManageData} className="flex-1 bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-60">Save Sale</button>
         </div>
       </div>
 

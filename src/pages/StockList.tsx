@@ -27,7 +27,7 @@ const StockList = () => {
   const totalValue = filtered.reduce((s, p) => s + p.costPrice * p.stock, 0);
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Stock" />
       <div className="px-4 py-3 space-y-3">
         <div className="grid grid-cols-2 gap-3">

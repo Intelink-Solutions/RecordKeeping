@@ -13,9 +13,11 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import PermissionGuard from "./components/PermissionGuard";
 import SavedOverlay from "./components/SavedOverlay";
 import MobilePushBootstrap from "./components/MobilePushBootstrap";
+import BackgroundSync from "./components/BackgroundSync";
 import NotFound from "./pages/NotFound";
 
 // ── Lazy pages — only loaded when the user navigates there ────────────────────
+const ForgotPassword        = lazy(() => import("./pages/ForgotPassword"));
 const Dashboard            = lazy(() => import("./pages/Dashboard"));
 const Products             = lazy(() => import("./pages/Products"));
 const Categories           = lazy(() => import("./pages/Categories"));
@@ -24,7 +26,7 @@ const Units                = lazy(() => import("./pages/Units"));
 const StockList            = lazy(() => import("./pages/StockList"));
 const Customers            = lazy(() => import("./pages/Customers"));
 const Suppliers            = lazy(() => import("./pages/Suppliers"));
-const DueList              = lazy(() => import("./pages/DueList"));
+const DueList              = lazy(() => import("./pages/DueListNew"));
 const AddSale              = lazy(() => import("./pages/AddSale"));
 const SalesList            = lazy(() => import("./pages/SalesList"));
 const SaleReturn           = lazy(() => import("./pages/SaleReturn"));
@@ -49,6 +51,7 @@ const InventoryHistory     = lazy(() => import("./pages/InventoryHistory"));
 
 // Reports
 const SalesReport          = lazy(() => import("./pages/reports/SalesReport"));
+const CustomerSalesDetail  = lazy(() => import("./pages/CustomerSalesDetail"));
 const SaleReturnReport     = lazy(() => import("./pages/reports/SaleReturnReport"));
 const PurchaseReport       = lazy(() => import("./pages/reports/PurchaseReport"));
 const PurchaseReturnReport = lazy(() => import("./pages/reports/PurchaseReturnReport"));
@@ -69,6 +72,15 @@ const ProductSalesReport   = lazy(() => import("./pages/reports/ProductSalesRepo
 const ProductPurchaseReport = lazy(() => import("./pages/reports/ProductPurchaseReport"));
 const DiscountedProducts   = lazy(() => import("./pages/reports/DiscountedProducts"));
 const DueTransactions      = lazy(() => import("./pages/reports/DueTransactions"));
+const DebtHistory          = lazy(() => import("./pages/reports/DebtHistory"));
+
+// Branches & Warehouses
+const Branches             = lazy(() => import("./pages/Branches"));
+const Warehouses           = lazy(() => import("./pages/Warehouses"));
+const Transfers            = lazy(() => import("./pages/Transfers"));
+const BranchStock          = lazy(() => import("./pages/BranchStock"));
+const BranchRoles          = lazy(() => import("./pages/BranchRoles"));
+const AllBranchesHistory   = lazy(() => import("./pages/AllBranchesHistory"));
 
 // HRM
 const HRMIndex             = lazy(() => import("./pages/hrm/HRMIndex"));
@@ -108,18 +120,20 @@ const App = () => (
       <Sonner />
       <SavedOverlay />
       <MobilePushBootstrap />
+      <BackgroundSync />
       <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             {/* Public routes */}
-            <Route path="/"      element={<Splash />} />
-            <Route path="/login" element={<Login />} />
+            <Route path="/"                element={<Splash />} />
+            <Route path="/login"           element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
 
             {/* Protected routes — require auth token */}
             <Route element={<ProtectedRoute />}>
               <Route path="/home"               element={<Index />} />
-              <Route path="/items"              element={<ItemsPage />} />
-              <Route path="/dashboard"          element={<Dashboard />} />
+              <Route path="/items"              element={<PermissionGuard><ItemsPage /></PermissionGuard>} />
+              <Route path="/dashboard"          element={<PermissionGuard><Dashboard /></PermissionGuard>} />
               <Route path="/products"           element={<PermissionGuard><Products /></PermissionGuard>} />
               <Route path="/categories"         element={<PermissionGuard><Categories /></PermissionGuard>} />
               <Route path="/brands"             element={<PermissionGuard><Brands /></PermissionGuard>} />
@@ -151,6 +165,7 @@ const App = () => (
 
               {/* Report Routes */}
               <Route path="/report/sales"             element={<PermissionGuard><SalesReport /></PermissionGuard>} />
+              <Route path="/report/sales/:customerId" element={<PermissionGuard><CustomerSalesDetail /></PermissionGuard>} />
               <Route path="/report/sale-returns"      element={<PermissionGuard><SaleReturnReport /></PermissionGuard>} />
               <Route path="/report/purchases"         element={<PermissionGuard><PurchaseReport /></PermissionGuard>} />
               <Route path="/report/purchase-returns"  element={<PermissionGuard><PurchaseReturnReport /></PermissionGuard>} />
@@ -171,6 +186,15 @@ const App = () => (
               <Route path="/report/product-purchases" element={<PermissionGuard><ProductPurchaseReport /></PermissionGuard>} />
               <Route path="/report/discounted"        element={<PermissionGuard><DiscountedProducts /></PermissionGuard>} />
               <Route path="/report/due-transactions"  element={<PermissionGuard><DueTransactions /></PermissionGuard>} />
+              <Route path="/report/debt-history"      element={<PermissionGuard><DebtHistory /></PermissionGuard>} />
+
+              {/* Branch & Warehouse Routes */}
+              <Route path="/branches"              element={<PermissionGuard><Branches /></PermissionGuard>} />
+              <Route path="/warehouses"            element={<PermissionGuard><Warehouses /></PermissionGuard>} />
+              <Route path="/transfers"             element={<PermissionGuard><Transfers /></PermissionGuard>} />
+              <Route path="/branch-stock"          element={<PermissionGuard><BranchStock /></PermissionGuard>} />
+              <Route path="/branch-roles"          element={<PermissionGuard><BranchRoles /></PermissionGuard>} />
+              <Route path="/all-branches-history"  element={<PermissionGuard><AllBranchesHistory /></PermissionGuard>} />
 
               {/* HRM Routes */}
               <Route path="/hrm"                    element={<PermissionGuard><HRMIndex /></PermissionGuard>} />

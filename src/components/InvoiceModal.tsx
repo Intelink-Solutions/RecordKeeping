@@ -202,7 +202,7 @@ const InvoiceBody = ({
           </div>
           <TRow label="Paid" value={`${biz.currency} ${data.paid.toFixed(2)}`} vc="#22c55e" bold />
           {data.due > 0 && (
-            <TRow label="Due" value={`${biz.currency} ${data.due.toFixed(2)}`} vc="#ef4444" bold />
+            <TRow label="Debt" value={`${biz.currency} ${data.due.toFixed(2)}`} vc="#ef4444" bold />
           )}
           {(data.change ?? 0) > 0 && (
             <TRow label="Change" value={`${biz.currency} ${(data.change ?? 0).toFixed(2)}`} vc="#22c55e" bold />
@@ -299,7 +299,7 @@ const InvoiceModal = ({ open, onClose, data }: InvoiceModalProps) => {
       ...(data.discount > 0 ? [`Discount: -${toM(data.discount)}`] : []),
       `*Total: ${toM(data.total)}*`,
       `Paid: ${toM(data.paid)}`,
-      ...(data.due > 0 ? [`Due: ${toM(data.due)}`] : []),
+      ...(data.due > 0 ? [`Debt: ${toM(data.due)}`] : []),
       ...((data.change ?? 0) > 0 ? [`Change: ${toM(data.change ?? 0)}`] : []),
       "",
       "Thank you for your business!",
@@ -388,7 +388,7 @@ const InvoiceModal = ({ open, onClose, data }: InvoiceModalProps) => {
   </style>
 </head>
 <body>${node.innerHTML}</body>
-<script>setTimeout(()=>{window.print();},400);<\/script>
+<script>setTimeout(()=>{window.print();},400);</script>
 </html>`;
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);

@@ -15,6 +15,13 @@ dist-ssr
 # Android signing keys — never commit these
 *.jks
 *.keystore
+android/keystore.properties
+keystore.properties
+android/local.properties
+
+# JVM crash dumps
+hs_err_pid*.log
+replay_pid*.log
 
 # Editor directories and files
 .vscode/*

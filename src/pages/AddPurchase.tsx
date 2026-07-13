@@ -9,9 +9,10 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/hooks/use-app-context";
 import { formatCurrency } from "@/lib/currency";
-import { apiCreatePurchase } from "@/lib/api";
+import { apiCreatePurchase, NetworkDownError } from "@/lib/api";
+import { enqueueOfflineOp } from "@/lib/offline-queue";
 import { syncLiveBusinessData } from "@/lib/live-sync";
-import { showSaved, useLiveData } from "@/hooks/use-live-data";
+import { showSaved, useLiveData, emitStoreUpdate } from "@/hooks/use-live-data";
 import { getImageUrl } from "@/lib/image-utils";
 
 const AddPurchase = () => {
@@ -56,7 +57,11 @@ const AddPurchase = () => {
   const dueAmount = receivedAmount < total ? total - receivedAmount : 0;
 
   const selectProduct = (p: Product) => {
-    if (items.find(i => i.productId === p.id)) return;
+    if (items.find(i => i.productId === p.id)) {
+      toast({ title: "Already in cart", description: "Adjust the quantity from the cart below instead." });
+      setShowPicker(false);
+      return;
+    }
     setPendingProduct(p);
     setPendingQty(1);
     setPendingPrice(p.costPrice);
@@ -66,6 +71,14 @@ const AddPurchase = () => {
 
   const confirmAdd = () => {
     if (!pendingProduct) return;
+    if (!Number.isFinite(pendingQty) || pendingQty <= 0) {
+      toast({ title: "Enter a valid quantity", variant: "destructive" });
+      return;
+    }
+    if (!Number.isFinite(pendingPrice) || pendingPrice <= 0) {
+      toast({ title: "Enter a valid purchase price", variant: "destructive" });
+      return;
+    }
     setItems([...items, { productId: pendingProduct.id, name: pendingProduct.name, quantity: pendingQty, unitPrice: pendingPrice }]);
     setShowQtyDialog(false);
     setPendingProduct(null);
@@ -89,46 +102,62 @@ const AddPurchase = () => {
     }
 
     setSaving(true);
-    try {
-      const paidAmount = Math.min(receivedAmount, total);
 
-      // Build products payload for backend
-      const apiProducts = items.map(item => {
-        const product = products.find(p => p.id === item.productId);
-        return {
-          product_id: item.productId,
-          quantities: item.quantity,
-          productPurchasePrice: item.unitPrice,
-          productSalePrice: product?.retailPrice || product?.price || 0,
-          productWholeSalePrice: product?.wholesalePrice || 0,
-          productDealerPrice: product?.dealerPrice || 0,
-          profit_percent: product?.profitMargin || 0,
-        };
+    const paidAmount = Math.min(receivedAmount, total);
+    const apiProducts = items.map(item => {
+      const product = products.find(p => p.id === item.productId);
+      return {
+        product_id: item.productId,
+        quantities: item.quantity,
+        productPurchasePrice: item.unitPrice,
+        productSalePrice: product?.retailPrice || product?.price || 0,
+        productWholeSalePrice: product?.wholesalePrice || 0,
+        productDealerPrice: product?.dealerPrice || 0,
+        profit_percent: product?.profitMargin || 0,
+      };
+    });
+    const effectiveBranchId = store.getEffectiveBranchId();
+    const purchasePayload = {
+      party_id: supplierId,
+      branch_id: effectiveBranchId ?? null,
+      products: apiProducts,
+      payments: paidAmount > 0 ? [{ type: "cash", amount: paidAmount }] : [],
+      purchaseDate: date,
+      totalAmount: total,
+      subtotal,
+      discountAmount: discount,
+      dueAmount,
+      paidAmount,
+    };
+
+    // ── Instant local save ────────────────────────────────────────────────────
+    const supplier = suppliers.find(s => s.id === supplierId);
+    const localPurchase = {
+      id: store.nextId(), invoiceNo, date,
+      branchId: effectiveBranchId || undefined,
+      supplierId, supplierName: supplier?.name || "Supplier",
+      items, subtotal, discount, total,
+      paid: paidAmount, due: dueAmount,
+      status: (dueAmount <= 0 ? "Paid" : paidAmount > 0 ? "Partial" : "Due") as "Paid" | "Due" | "Partial",
+      returned: false,
+    };
+    store.savePurchases([localPurchase, ...store.getPurchases()]);
+    emitStoreUpdate();
+    showSaved("Purchase saved!");
+    setSaving(false);
+    navigate("/purchases");
+
+    // ── Background sync ───────────────────────────────────────────────────────
+    apiCreatePurchase(purchasePayload)
+      .then(() => { syncLiveBusinessData().catch(() => {}); })
+      .catch((err) => {
+        if (err instanceof NetworkDownError) {
+          enqueueOfflineOp("POST", "/purchases", purchasePayload as unknown as Record<string, unknown>);
+        } else {
+          const msg = err instanceof Error ? err.message : "Sync failed";
+          toast({ title: "Purchase sync issue", description: msg, variant: "destructive" });
+        }
       });
-
-      await apiCreatePurchase({
-        party_id: supplierId,
-        products: apiProducts,
-        payments: paidAmount > 0 ? [{ type: "cash", amount: paidAmount }] : [],
-        purchaseDate: date,
-        totalAmount: total,
-        subtotal,
-        discountAmount: discount,
-        dueAmount,
-        paidAmount,
-      });
-
-      // Re-sync from backend to get real data
-      await syncLiveBusinessData();
-
-      showSaved("Purchase saved!");
-      navigate("/purchases");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to save purchase";
-      toast({ title: "Error", description: msg, variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
   };
 
   return (
@@ -182,7 +211,7 @@ const AddPurchase = () => {
           <div className="flex justify-between text-sm font-bold border-t border-border pt-2"><span>Total</span><span className="text-primary">{formatCurrency(total, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
           <div className="flex justify-between items-center text-sm"><span className="font-semibold">Paid</span><Input type="number" value={receivedAmount} onChange={e => setReceivedAmount(Number(e.target.value))} className="w-24 h-8 text-right text-sm" /></div>
           {changeAmount > 0 && <Row label="Change" value={formatCurrency(changeAmount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-success" />}
-          {dueAmount > 0 && <Row label="Due" value={formatCurrency(dueAmount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-destructive" />}
+          {dueAmount > 0 && <Row label="Debt" value={formatCurrency(dueAmount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-destructive" />}
         </div>
 
         <div className="flex gap-3">

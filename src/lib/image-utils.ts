@@ -26,10 +26,13 @@ export function getImageUrl(imageData?: string): string | null {
     return imageData;
   }
   
-  // Build the backend base URL from environment or known production URL
+  // Build the backend base URL: env var → configured server URL → dev relative
+  const configuredUrl = (localStorage.getItem('pos_api_base_url') || '')
+    .replace(/\/public\/api\/v\d+\/?$/, '')
+    .replace(/\/api\/v\d+\/?$/, '')
+    .replace(/\/public\/?$/, '');
   const backendUrl = (
-    import.meta.env.VITE_BACKEND_URL ||
-    (import.meta.env.DEV ? '' : 'https://keydoctors.veewiss.com')
+    import.meta.env.VITE_BACKEND_URL || configuredUrl || (import.meta.env.DEV ? '' : '')
   ).replace(/\/+$/, '');
 
   // Files are stored in public/uploads/YY/MM/file.ext and served at /uploads/...

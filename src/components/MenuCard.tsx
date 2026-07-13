@@ -14,15 +14,15 @@ const MenuCard = ({ icon: Icon, label, path, color }: MenuCardProps) => {
   return (
     <button
       onClick={() => navigate(path)}
-      className="flex flex-col items-center gap-2 bg-card rounded-xl p-3 shadow-sm border border-border hover:shadow-md transition-shadow active:scale-[0.97]"
+      className="flex flex-col items-center gap-2 bg-card rounded-2xl py-3.5 px-2 shadow-sm border border-border hover:shadow-md transition-shadow active:scale-[0.97]"
     >
       <div
         className="w-10 h-10 rounded-full flex items-center justify-center"
         style={{ backgroundColor: color + "18", color }}
       >
-        <Icon size={20} />
+        <Icon size={19} />
       </div>
-      <span className="text-[11px] font-semibold text-foreground text-center leading-tight">{label}</span>
+      <span className="text-[10.5px] font-semibold text-foreground text-center leading-tight">{label}</span>
     </button>
   );
 };

@@ -1,6 +1,9 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, ShoppingCart, Plus, Minus, X, ChevronRight } from "lucide-react";
+import {
+  Search, ShoppingCart, ShoppingBag, Plus, Minus, X, ChevronRight,
+  SlidersHorizontal, FolderPlus, Package, MoreVertical,
+} from "lucide-react";
 import { store, Product } from "@/lib/store";
 import { useLiveData } from "@/hooks/use-live-data";
 import { formatCurrency } from "@/lib/currency";
@@ -23,6 +26,7 @@ const ItemsPage = () => {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
+  const [hideOutOfStock, setHideOutOfStock] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
 
@@ -36,9 +40,10 @@ const ItemsPage = () => {
         p.code.toLowerCase().includes(q);
       const matchCat =
         activeCategory === "all" || p.categoryId === activeCategory;
-      return matchSearch && matchCat;
+      const matchStock = !hideOutOfStock || p.stock > 0;
+      return matchSearch && matchCat && matchStock;
     });
-  }, [products, searchQuery, activeCategory]);
+  }, [products, searchQuery, activeCategory, hideOutOfStock]);
 
   // ── Cart helpers ───────────────────────────────────────────────────
   const cartQty = (productId: string) =>
@@ -101,18 +106,27 @@ const ItemsPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col pb-nav">
       {/* ── Header ── */}
-      <div className="bg-primary text-primary-foreground px-4 pt-4 pb-3 space-y-3 shadow-md">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold tracking-tight">Items</h1>
+      <div className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border px-4 pt-4 pb-3 space-y-3 safe-top">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-primary flex items-center justify-center shrink-0">
+              <ShoppingBag size={20} className="text-primary-foreground" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-xl font-extrabold tracking-tight truncate">Items</h1>
+              <p className="text-xs text-muted-foreground truncate">Manage your products and inventory</p>
+            </div>
+          </div>
           <button
             onClick={() => setShowCart(true)}
-            className="relative p-2 rounded-full bg-primary-foreground/15 active:bg-primary-foreground/25"
+            className="relative w-11 h-11 rounded-2xl border border-border bg-card flex items-center justify-center shrink-0"
+            aria-label="Open cart"
           >
-            <ShoppingCart size={22} />
+            <ShoppingCart size={19} />
             {totalItems > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+              <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
                 {totalItems}
               </span>
             )}
@@ -120,17 +134,27 @@ const ItemsPage = () => {
         </div>
 
         {/* Search */}
-        <div className="relative">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-primary-foreground/50"
-          />
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="I want to sell..."
-            className="w-full bg-primary-foreground/15 placeholder:text-primary-foreground/50 text-primary-foreground rounded-xl pl-9 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-foreground/30"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="I want to sell..."
+              className="w-full bg-muted/60 placeholder:text-muted-foreground rounded-2xl pl-10 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+          <button
+            onClick={() => setHideOutOfStock((v) => !v)}
+            className={`w-11 h-11 rounded-2xl border flex items-center justify-center shrink-0 transition-colors ${
+              hideOutOfStock ? "border-primary/40 bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground"
+            }`}
+            aria-pressed={hideOutOfStock}
+            aria-label="Toggle in-stock only filter"
+            title={hideOutOfStock ? "Showing in-stock items only" : "Show all items"}
+          >
+            <SlidersHorizontal size={16} />
+          </button>
         </div>
 
         {/* Category Pills */}
@@ -139,8 +163,8 @@ const ItemsPage = () => {
             onClick={() => setActiveCategory("all")}
             className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors ${
               activeCategory === "all"
-                ? "bg-primary-foreground text-primary"
-                : "bg-primary-foreground/15 text-primary-foreground"
+                ? "bg-primary text-primary-foreground"
+                : "bg-card border border-border text-foreground"
             }`}
           >
             All
@@ -151,51 +175,53 @@ const ItemsPage = () => {
               onClick={() => setActiveCategory(cat.id)}
               className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors ${
                 activeCategory === cat.id
-                  ? "bg-primary-foreground text-primary"
-                  : "bg-primary-foreground/15 text-primary-foreground"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card border border-border text-foreground"
               }`}
             >
               {cat.name}
             </button>
           ))}
+          <button
+            onClick={() => navigate("/categories")}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-dashed border-primary/40 text-primary"
+          >
+            <FolderPlus size={13} />
+            Add Category
+          </button>
         </div>
       </div>
 
       {/* ── Product Grid ── */}
-      <div className="flex-1 overflow-y-auto pb-32">
+      <div className="flex-1 overflow-y-auto">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Search size={40} className="mb-3 opacity-30" />
             <p className="text-sm font-medium">No products found</p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-px bg-border">
+          <div className="grid grid-cols-3 gap-3 px-4 py-4">
             {filtered.map((p) => {
               const qty = cartQty(p.id);
               const outOfStock = p.stock <= 0;
+              const lowStock = !outOfStock && p.stock <= p.alertQty;
               const imgUrl = getImageUrl(p.image);
 
               return (
                 <div
                   key={p.id}
-                  className="bg-card flex flex-col items-center py-3 px-2 gap-1 relative"
+                  className="relative bg-card rounded-2xl border border-border shadow-sm p-3 flex flex-col items-center gap-1"
                 >
-                  {/* Out of stock badge */}
-                  {outOfStock && (
-                    <span className="absolute top-2 left-2 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded z-10">
-                      Out of stock
-                    </span>
-                  )}
-
-                  {/* In-cart badge */}
-                  {qty > 0 && (
-                    <span className="absolute top-2 right-2 min-w-[18px] h-[18px] bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-1 z-10">
-                      {qty}
-                    </span>
-                  )}
+                  <button
+                    onClick={() => navigate("/products")}
+                    className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted z-10"
+                    aria-label={`Manage ${p.name}`}
+                  >
+                    <MoreVertical size={14} />
+                  </button>
 
                   {/* Product Image */}
-                  <div className="w-20 h-20 rounded-xl overflow-hidden bg-accent flex items-center justify-center">
+                  <div className="w-full aspect-square rounded-xl overflow-hidden bg-muted flex items-center justify-center">
                     {imgUrl ? (
                       <img
                         src={imgUrl}
@@ -210,7 +236,7 @@ const ItemsPage = () => {
                   </div>
 
                   {/* Name */}
-                  <p className="text-xs font-semibold text-center leading-tight line-clamp-2">
+                  <p className="w-full text-xs font-bold text-center leading-tight line-clamp-2 mt-1">
                     {p.name}
                   </p>
 
@@ -219,25 +245,40 @@ const ItemsPage = () => {
                     {formatCurrency(p.retailPrice)}
                   </p>
 
+                  {/* Stock badge */}
+                  <span
+                    className={`inline-flex items-center gap-1 text-[9.5px] font-semibold px-2 py-0.5 rounded-full ${
+                      outOfStock
+                        ? "bg-destructive/10 text-destructive"
+                        : lowStock
+                          ? "bg-warning/10 text-warning"
+                          : "bg-success/10 text-success"
+                    }`}
+                  >
+                    <Package size={9} />
+                    {outOfStock ? "Out of Stock" : lowStock ? "Low Stock" : "In Stock"}
+                  </span>
+
                   {/* Add / Qty Controls */}
                   {outOfStock ? (
-                    <div className="h-7" />
+                    <div className="w-full h-7 mt-1" />
                   ) : qty === 0 ? (
                     <button
                       onClick={() => addToCart(p)}
-                      className="mt-1 px-4 py-1 bg-primary text-primary-foreground text-xs font-bold rounded-full active:opacity-80"
+                      className="w-full mt-1 py-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-full flex items-center justify-center gap-1 active:opacity-80"
                     >
+                      <Plus size={12} />
                       Add
                     </button>
                   ) : (
-                    <div className="flex items-center gap-1 mt-1">
+                    <div className="flex items-center gap-1.5 mt-1">
                       <button
                         onClick={() => removeFromCart(p.id)}
                         className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center active:opacity-80"
                       >
                         <Minus size={12} />
                       </button>
-                      <span className="w-6 text-center text-xs font-bold">{qty}</span>
+                      <span className="w-5 text-center text-xs font-bold">{qty}</span>
                       <button
                         onClick={() => addToCart(p)}
                         className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center active:opacity-80"
@@ -249,16 +290,27 @@ const ItemsPage = () => {
                 </div>
               );
             })}
+
+            {/* Add New Product tile */}
+            <button
+              onClick={() => navigate("/products")}
+              className="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/30 text-primary py-6 min-h-[168px]"
+            >
+              <div className="w-9 h-9 rounded-full border-2 border-primary/40 flex items-center justify-center">
+                <Plus size={18} />
+              </div>
+              <span className="text-xs font-bold text-center px-2 leading-tight">Add New Product</span>
+            </button>
           </div>
         )}
       </div>
 
       {/* ── Sticky Checkout Bar ── */}
       {totalItems > 0 && (
-        <div className="fixed bottom-16 left-0 right-0 px-4 pb-2 z-40">
+        <div className="fixed bottom-[calc(90px+env(safe-area-inset-bottom,0px))] left-0 right-0 px-4 z-40">
           <button
             onClick={checkout}
-            className="w-full bg-primary text-primary-foreground rounded-2xl px-5 py-4 flex items-center justify-between shadow-2xl active:opacity-90"
+            className="w-full max-w-lg mx-auto bg-primary text-primary-foreground rounded-2xl px-5 py-4 flex items-center justify-between shadow-2xl active:opacity-90"
           >
             <div className="flex items-center gap-3">
               <span className="bg-primary-foreground/20 text-primary-foreground text-xs font-bold px-2.5 py-1 rounded-full">

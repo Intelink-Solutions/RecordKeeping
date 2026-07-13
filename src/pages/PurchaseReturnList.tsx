@@ -14,7 +14,7 @@ const PurchaseReturnList = () => {
   const filtered = returns.filter(r => r.supplierName.toLowerCase().includes(debouncedSearch.toLowerCase()) || r.invoiceNo.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Purchase Returns" />
       <div className="px-4 py-3">
         <div className="relative mb-3"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>

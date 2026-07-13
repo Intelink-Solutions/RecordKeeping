@@ -14,8 +14,10 @@ import { formatCurrency } from "@/lib/currency";
 import { getImageUrl, fileToBase64, getIconForType } from "@/lib/image-utils";
 import { useDebounce } from "@/hooks/use-debounce";
 import { syncLiveBusinessData } from "@/lib/live-sync";
-import { apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiGet } from "@/lib/api";
+import { apiCreateProduct, apiUpdateProduct, apiDeleteProduct, NetworkDownError } from "@/lib/api";
 import { useLiveData, showSaved, emitStoreUpdate } from "@/hooks/use-live-data";
+import { useScrollRefresh } from "@/hooks/use-scroll-refresh";
+import { enqueueOfflineOp } from "@/lib/offline-queue";
 
 const ProductThumb = ({ image, name }: { image?: string; name: string }) => {
   const [imgError, setImgError] = useState(false);
@@ -41,12 +43,19 @@ const ProductThumb = ({ image, name }: { image?: string; name: string }) => {
 
 const Products = () => {
   const { toast } = useToast();
-  const { canManageData, roleLabel } = useAppContext();
+  const { canManageData, roleLabel, isOwner } = useAppContext();
   const categories = useLiveData(() => store.getCategories());
   const brands = useLiveData(() => store.getBrands());
   const units = useLiveData(() => store.getUnits());
   const vatRates = useLiveData(() => store.getVatRates().filter(v => v.status === "Active"));
-  const products = useLiveData(() => store.getProducts());
+  const allProducts = useLiveData(() => store.getProducts());
+  const branches = useLiveData(() => store.getBranches());
+  const effectiveBranchId = store.getEffectiveBranchId();
+  // Show only products belonging to the active/assigned branch; owner with no branch set sees all
+  const products = effectiveBranchId
+    ? allProducts.filter(p => !p.branchId || p.branchId === effectiveBranchId)
+    : allProducts;
+  useScrollRefresh(() => syncLiveBusinessData().catch(() => {}));
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
@@ -54,6 +63,7 @@ const Products = () => {
   const [filterBrand, setFilterBrand] = useState("");
   const [viewProduct, setViewProduct] = useState<Product | null>(null);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [editBranchId, setEditBranchId] = useState<string>("");
   const [menuId, setMenuId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -61,104 +71,9 @@ const Products = () => {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [editImageFile, setEditImageFile] = useState<File | null>(null);
   const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
-  const [defaultWarehouseId, setDefaultWarehouseId] = useState<string | null>(null);
-
-  function asRows(payload: unknown): Record<string, unknown>[] {
-    if (Array.isArray(payload)) return payload as Record<string, unknown>[];
-    if (!payload || typeof payload !== "object") return [];
-    const obj = payload as Record<string, unknown>;
-
-    if (Array.isArray(obj.data)) return obj.data as Record<string, unknown>[];
-    if (obj.data && typeof obj.data === "object") {
-      const nested = obj.data as Record<string, unknown>;
-      if (Array.isArray(nested.data)) return nested.data as Record<string, unknown>[];
-    }
-
-    for (const key of ["warehouses", "warehouse", "stores", "items", "results", "list"]) {
-      if (Array.isArray(obj[key])) return obj[key] as Record<string, unknown>[];
-    }
-
-    return [];
-  }
-
-  function pickWarehouseId(row: Record<string, unknown>): string | null {
-    const value = row.id ?? row.warehouse_id ?? row.warehouseId ?? row.store_id ?? row.storeId;
-    if (value === undefined || value === null || String(value) === "") return null;
-    return String(value);
-  }
-
-  async function resolveWarehouseId(forceRefresh = false): Promise<string | null> {
-    if (!forceRefresh && defaultWarehouseId) return defaultWarehouseId;
-
-    const candidates = [
-      "/warehouses?per_page=500",
-      "/warehouses",
-      "/warehouse?per_page=500",
-      "/warehouse",
-      "/stores?per_page=500",
-      "/stores",
-    ];
-
-    for (const path of candidates) {
-      try {
-        const raw = await apiGet<unknown>(path);
-        const rows = asRows(raw);
-        if (!rows.length) continue;
-
-        const active = rows.find((r) => {
-          const status = String(r.status ?? r.is_active ?? "").toLowerCase();
-          return status === "active" || status === "1" || status === "true";
-        });
-
-        const id = pickWarehouseId(active ?? rows[0]);
-        if (id) {
-          setDefaultWarehouseId(id);
-          return id;
-        }
-      } catch {
-        // Try next candidate.
-      }
-    }
-
-    return null;
-  }
-
-  function extractCreatedProductId(payload: unknown): string | null {
-    if (!payload || typeof payload !== "object") return null;
-    const obj = payload as Record<string, unknown>;
-
-    const directId = obj.id;
-    if (directId !== undefined && directId !== null && String(directId) !== "") {
-      return String(directId);
-    }
-
-    const data = obj.data;
-    if (data && typeof data === "object") {
-      const dataObj = data as Record<string, unknown>;
-      const dataId = dataObj.id;
-      if (dataId !== undefined && dataId !== null && String(dataId) !== "") {
-        return String(dataId);
-      }
-
-      const product = dataObj.product;
-      if (product && typeof product === "object") {
-        const productId = (product as Record<string, unknown>).id;
-        if (productId !== undefined && productId !== null && String(productId) !== "") {
-          return String(productId);
-        }
-      }
-    }
-
-    const product = obj.product;
-    if (product && typeof product === "object") {
-      const productId = (product as Record<string, unknown>).id;
-      if (productId !== undefined && productId !== null && String(productId) !== "") {
-        return String(productId);
-      }
-    }
-
-    return null;
-  }
+  // Show branch picker only when the owner is in "All Branches" mode and needs to assign a branch.
+  // When a specific branch is active (or user is staff), branch is auto-filled — no picker needed.
+  const showBranchPicker = isOwner && branches.length > 1 && !store.getActiveBranchId();
 
   useEffect(() => {
     let mounted = true;
@@ -189,6 +104,7 @@ const Products = () => {
     name: "",
     code: store.getNextProductCode(),
     productType: "single",
+    branchId: store.getEffectiveBranchId() ?? "",
     categoryId: "",
     brandId: "",
     unitId: "",
@@ -275,6 +191,7 @@ const Products = () => {
       name: "",
       code: store.getNextProductCode(),
       productType: "single",
+      branchId: store.getEffectiveBranchId() ?? "",
       categoryId: "",
       brandId: "",
       unitId: "",
@@ -297,9 +214,7 @@ const Products = () => {
   };
 
   const addProduct = async () => {
-    if (!form.name.trim() || !form.exclusivePrice) return;
-    setSaving(true);
-    const isOnline = store.getBusinessProfile().isOnline;
+    if (!form.name.trim() || !form.categoryId || !form.exclusivePrice) return;
 
     const exclusivePrice = Number(form.exclusivePrice) || 0;
     const inclusivePrice = Number(form.inclusivePrice) || exclusivePrice;
@@ -309,119 +224,81 @@ const Products = () => {
     const dealerPrice = Number(form.dealerPrice) || salePrice;
     const stockQty = Number(form.stock) || 0;
 
-    if (isOnline) {
-      try {
-        const resolvedWarehouseId = await resolveWarehouseId();
-        const createPayload = {
-          productName: form.name.trim(),
-          productCode: form.code || undefined,
-          product_type: (form.productType as "single" | "variant" | "combo") || "single",
-          vat_type: (form.vatType as "inclusive" | "exclusive") || "exclusive",
-          vat_id: (form.vatId && form.vatId !== "none") ? form.vatId : null,
-          category_id: form.categoryId || null,
-          brand_id: form.brandId || null,
-          unit_id: form.unitId || null,
-          alert_qty: Number(form.alertQty) || 10,
-          productManufacturer: form.manufacturer || undefined,
-          productSalePrice: salePrice,
-          productPurchasePrice: exclusivePrice,
-          productWholeSalePrice: wholesalePrice,
-          productDealerPrice: dealerPrice,
-          productStock: stockQty,
-          productPicture: imageFile,
-          stocks: [{
-            warehouse_id: resolvedWarehouseId ?? undefined,
-            productStock: stockQty,
-            exclusive_price: exclusivePrice,
-            inclusive_price: inclusivePrice,
-            profit_percent: profitMargin,
-            productSalePrice: salePrice,
-            productWholeSalePrice: wholesalePrice,
-            productDealerPrice: dealerPrice,
-            expire_date: form.expiryDate || null,
-          }],
-        };
+    // ── Instant local save ────────────────────────────────────────────────────
+    const localProduct: Product = {
+      id: store.nextId(), name: form.name.trim(), code: form.code,
+      branchId: form.branchId || undefined,
+      categoryId: form.categoryId, brandId: form.brandId, unitId: form.unitId,
+      vatId: form.vatId || undefined,
+      price: salePrice, costPrice: exclusivePrice,
+      retailPrice: salePrice,
+      wholesalePrice, dealerPrice,
+      stock: stockQty, alertQty: Number(form.alertQty) || 10,
+      profitMargin: profitMargin || undefined,
+      manufacturer: form.manufacturer || undefined,
+      expiryDate: form.expiryDate || undefined,
+      image: form.image || undefined,
+    };
+    store.saveProducts([...store.getProducts(), localProduct]);
+    emitStoreUpdate();
+    resetForm(); setShowAdd(false);
+    showSaved("Product added!");
 
-        let effectivePayload = createPayload;
-        let createResult: unknown;
+    // ── Background API ────────────────────────────────────────────────────────
+    const createPayload = {
+      productName: localProduct.name,
+      productCode: form.code || undefined,
+      product_type: (form.productType as "single" | "variant" | "combo") || "single",
+      vat_type: (form.vatType as "inclusive" | "exclusive") || "exclusive",
+      vat_id: (form.vatId && form.vatId !== "none") ? form.vatId : null,
+      category_id: form.categoryId || null,
+      brand_id: form.brandId || null,
+      unit_id: form.unitId || null,
+      branch_id: form.branchId || null,
+      alert_qty: Number(form.alertQty) || 10,
+      productManufacturer: form.manufacturer || undefined,
+      productSalePrice: salePrice,
+      productPurchasePrice: exclusivePrice,
+      productWholeSalePrice: wholesalePrice,
+      productDealerPrice: dealerPrice,
+      productStock: stockQty,
+      productPicture: imageFile,
+      stocks: [{
+        productStock: stockQty,
+        exclusive_price: exclusivePrice,
+        inclusive_price: inclusivePrice,
+        profit_percent: profitMargin,
+        productSalePrice: salePrice,
+        productWholeSalePrice: wholesalePrice,
+        productDealerPrice: dealerPrice,
+        expire_date: form.expiryDate || null,
+      }],
+    };
+
+    (async () => {
+      try {
+        let payload = createPayload;
         try {
-          createResult = await apiCreateProduct(effectivePayload);
+          await apiCreateProduct(payload);
         } catch (err) {
           const msg = err instanceof Error ? err.message.toLowerCase() : "";
           if (msg.includes("selected unit id is invalid")) {
-            effectivePayload = { ...effectivePayload, unit_id: null };
-            createResult = await apiCreateProduct(effectivePayload);
-          } else if (msg.includes("warehouse_id is invalid")) {
-            const validWarehouseId = await resolveWarehouseId(true);
-            effectivePayload = {
-              ...effectivePayload,
-              stocks: [{
-                ...effectivePayload.stocks[0],
-                warehouse_id: validWarehouseId ?? undefined,
-              }],
-            };
-            createResult = await apiCreateProduct(effectivePayload);
+            payload = { ...payload, unit_id: null };
+            await apiCreateProduct(payload);
           } else {
             throw err;
           }
         }
-
-        // Follow-up update to set root product prices for web panel visibility
-        const createdProductId = extractCreatedProductId(createResult);
-        if (createdProductId) {
-          try {
-            await apiUpdateProduct(createdProductId, {
-              productName: effectivePayload.productName,
-              product_type: effectivePayload.product_type ?? "single",
-              vat_type: effectivePayload.vat_type ?? "exclusive",
-              vat_id: (effectivePayload.vat_id && effectivePayload.vat_id !== "none") ? effectivePayload.vat_id : null,
-              category_id: effectivePayload.category_id,
-              brand_id: effectivePayload.brand_id,
-              unit_id: effectivePayload.unit_id,
-              alert_qty: effectivePayload.alert_qty,
-              productManufacturer: effectivePayload.productManufacturer,
-              productSalePrice: effectivePayload.productSalePrice,
-              productPurchasePrice: effectivePayload.productPurchasePrice,
-              productWholeSalePrice: effectivePayload.productWholeSalePrice,
-              productDealerPrice: effectivePayload.productDealerPrice,
-              productStock: effectivePayload.productStock,
-              stocks: undefined,
-            });
-          } catch (updateErr) {
-            console.warn("[Products] post-create root update failed:", updateErr instanceof Error ? updateErr.message : updateErr);
-          }
-        }
-
-        await syncLiveBusinessData();
-        resetForm(); setShowAdd(false);
-        showSaved("Product added!");
+        syncLiveBusinessData().catch(() => {});
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to add product";
-        toast({ title: "Error", description: msg, variant: "destructive" });
-      } finally {
-        setSaving(false);
+        if (err instanceof NetworkDownError) {
+          enqueueOfflineOp("POST", "/products", createPayload as unknown as Record<string, unknown>);
+        } else {
+          const msg = err instanceof Error ? err.message : "Sync failed";
+          toast({ title: "Product sync issue", description: msg, variant: "destructive" });
+        }
       }
-    } else {
-      const p: Product = {
-        id: store.nextId(), name: form.name.trim(), code: form.code,
-        categoryId: form.categoryId, brandId: form.brandId, unitId: form.unitId,
-        vatId: form.vatId || undefined,
-        price: salePrice, costPrice: exclusivePrice,
-        retailPrice: salePrice,
-        wholesalePrice, dealerPrice,
-        stock: stockQty, alertQty: Number(form.alertQty) || 10,
-        profitMargin: profitMargin || undefined,
-        manufacturer: form.manufacturer || undefined,
-        expiryDate: form.expiryDate || undefined,
-        image: form.image || undefined,
-      };
-      const updated = [...products, p];
-      store.saveProducts(updated);
-      emitStoreUpdate();
-      resetForm(); setShowAdd(false);
-      showSaved("Product saved locally (offline)");
-      setSaving(false);
-    }
+    })();
   };
 
   const saveEdit = async () => {
@@ -447,6 +324,7 @@ const Products = () => {
           category_id: editProduct.categoryId || null,
           brand_id: editProduct.brandId || null,
           unit_id: editProduct.unitId || null,
+          branch_id: editBranchId || null,
           // Include image file if a new one was uploaded, otherwise use existing image
           productPicture: editImageFile || (editProduct.image ? null : undefined),
           stocks: [{
@@ -534,7 +412,7 @@ const Products = () => {
   const getBrandName = (id?: string) => brands.find(b => b.id === id)?.name || "-";
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Products" />
       <div className="px-4 py-3 space-y-3">
         {!canManageData && (
@@ -573,7 +451,7 @@ const Products = () => {
                   <button onClick={() => { setViewProduct(p); setMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent"><Eye size={14} /> View</button>
                   {canManageData && (
                     <>
-                      <button onClick={() => { setEditProduct(p); setMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent"><Edit size={14} /> Edit</button>
+                      <button onClick={() => { setEditProduct(p); setEditBranchId(p.branchId ?? store.getEffectiveBranchId() ?? ""); setMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent"><Edit size={14} /> Edit</button>
                       <button onClick={() => requestDeleteProduct(p.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-destructive"><Trash2 size={14} /> Delete</button>
                     </>
                   )}
@@ -600,9 +478,20 @@ const Products = () => {
               <Input placeholder="Enter Product Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
             </div>
 
+            {/* Branch */}
+            {showBranchPicker && (
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Branch <span className="text-destructive">*</span></Label>
+                <Select value={form.branchId} onValueChange={v => setForm({ ...form, branchId: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
+                  <SelectContent>{branches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            )}
+
             {/* Category */}
             <div className="space-y-1">
-              <Label className="text-xs font-medium">Product Category</Label>
+              <Label className="text-xs font-medium">Product Category <span className="text-destructive">*</span></Label>
               <Select value={form.categoryId} onValueChange={v => setForm({ ...form, categoryId: v })}>
                 <SelectTrigger><SelectValue placeholder="Select One" /></SelectTrigger>
                 <SelectContent>{categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
@@ -765,7 +654,7 @@ const Products = () => {
 
             <button
               onClick={addProduct}
-              disabled={saving || !form.name.trim() || !form.exclusivePrice}
+              disabled={saving || !form.name.trim() || !form.categoryId || !form.exclusivePrice}
               className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60"
             >
               {saving ? "Saving..." : "Save Product"}
@@ -813,6 +702,15 @@ const Products = () => {
                 <Label className="text-xs font-medium">Product Name</Label>
                 <Input value={editProduct.name} onChange={e => setEditProduct({ ...editProduct, name: e.target.value })} />
               </div>
+              {showBranchPicker && (
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Branch</Label>
+                  <Select value={editBranchId} onValueChange={setEditBranchId}>
+                    <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
+                    <SelectContent>{branches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs font-medium">Category</Label>

@@ -25,10 +25,11 @@ interface ReportPageProps<T> {
   searchKeys?: (keyof T)[];
   dateKey?: keyof T;
   showDateFilter?: boolean;
+  onRowClick?: (item: T) => void;
 }
 
 function ReportPage<T extends Record<string, unknown>>({
-  title, data, columns, summaryCards, searchKeys = [], dateKey, showDateFilter = true,
+  title, data, columns, summaryCards, searchKeys = [], dateKey, showDateFilter = true, onRowClick,
 }: ReportPageProps<T>) {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
@@ -63,7 +64,7 @@ function ReportPage<T extends Record<string, unknown>>({
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title={title} />
       <div className="px-4 py-4 space-y-4">
         {/* Summary Cards */}
@@ -123,7 +124,11 @@ function ReportPage<T extends Record<string, unknown>>({
                   <tr><td colSpan={columns.length} className="text-center py-8 text-muted-foreground text-sm">No data found</td></tr>
                 ) : (
                   displayed.map((item, idx) => (
-                    <tr key={idx} className="border-t border-border">
+                    <tr 
+                      key={idx} 
+                      className={`border-t border-border ${onRowClick ? "hover:bg-muted/50 cursor-pointer transition-colors" : ""}`}
+                      onClick={() => onRowClick?.(item)}
+                    >
                       {columns.map((col) => (
                         <td key={col.key} className="px-3 py-2.5 whitespace-nowrap text-xs">
                           {col.render ? col.render(item) : String(item[col.key] ?? "")}

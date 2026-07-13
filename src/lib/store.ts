@@ -1,3 +1,13 @@
+import { applyDynamicBranding } from "@/lib/app-branding";
+import { getImageUrl } from "@/lib/image-utils";
+
+/** Display label for a payment status. Stored/compared values stay "Due" so
+ * they keep matching existing synced data and API responses — only what's
+ * shown to the user reads "Debt". */
+export function paymentStatusLabel(status: "Paid" | "Due" | "Partial" | string): string {
+  return status === "Due" ? "Debt" : status;
+}
+
 // ===== Data Models =====
 
 export interface Category {
@@ -24,6 +34,7 @@ export interface Product {
   id: string;
   name: string;
   code: string;
+  branchId?: string;
   categoryId?: string;
   brandId?: string;
   unitId?: string;
@@ -76,6 +87,7 @@ export interface Sale {
   id: string;
   invoiceNo: string;
   date: string;
+  branchId?: string;
   customerId: string;
   customerName: string;
   customerPhone?: string;
@@ -103,6 +115,19 @@ export interface SaleReturn {
   total: number;
 }
 
+/** A single debt-collection event (a payment recorded against a customer's
+ * or supplier's outstanding balance via PayDueDialog / POST /dues). */
+export interface DuePayment {
+  id: string;
+  partyId: string;
+  partyName: string;
+  partyType: "Customer" | "Supplier";
+  amount: number;
+  date: string;
+  paymentType?: string;
+  note?: string;
+}
+
 export interface PurchaseItem {
   productId: string;
   name: string;
@@ -114,6 +139,7 @@ export interface Purchase {
   id: string;
   invoiceNo: string;
   date: string;
+  branchId?: string;
   supplierId: string;
   supplierName: string;
   items: PurchaseItem[];
@@ -139,6 +165,7 @@ export interface PurchaseReturn {
 export interface Expense {
   id: string;
   date: string;
+  branchId?: string;
   categoryId: string;
   categoryName: string;
   amount: number;
@@ -275,6 +302,11 @@ export interface VatRate {
 
 export interface BusinessProfile {
   companyName: string;
+  /** Compact name used for the app wordmark/browser tab title once the shop
+   * owner completes the first-login setup wizard; falls back to the generic
+   * "RecordKEEPING" brand name when empty. Device-local only (not synced to
+   * the backend), same as `darkMode`. */
+  shortName: string;
   address: string;
   phone: string;
   email: string;
@@ -284,6 +316,10 @@ export interface BusinessProfile {
   currencyPosition?: "before" | "after";
   darkMode: boolean;
   isOnline: boolean;
+  /** The backend's numeric business id (from GET /business `data.id`).
+   * Required to save changes — the backend's update route is
+   * PUT /business/{id}, not PUT /business. */
+  businessId?: number;
 }
 
 export interface UserProfile {
@@ -311,6 +347,62 @@ export interface Party {
   type: "Dealer" | "Retailer" | "Wholesaler" | "Supplier";
   due: number;
   avatar?: string;
+}
+
+export interface Branch {
+  id: string;
+  name: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  branchOpeningBalance?: number;
+  description?: string;
+  status: "Active" | "Inactive";
+}
+
+export interface Warehouse {
+  id: string;
+  name: string;
+  branchId?: string;
+  branchName?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  status: "Active" | "Inactive";
+}
+
+export interface TransferProductLine {
+  stockId: string;
+  productId: string;
+  productName?: string;
+  quantity: number;
+  unitPrice?: number;
+}
+
+export interface Transfer {
+  id: string;
+  invoiceNo?: string;
+  fromBranchId: string;
+  fromBranchName?: string;
+  toBranchId: string;
+  toBranchName?: string;
+  fromWarehouseId?: string;
+  fromWarehouseName?: string;
+  toWarehouseId?: string;
+  toWarehouseName?: string;
+  transferDate: string;
+  note?: string;
+  shippingCharge?: number;
+  status: "pending" | "completed" | "cancelled";
+  products?: TransferProductLine[];
+}
+
+export interface BranchRole {
+  id: string;
+  name: string;
+  description?: string;
+  permissions?: string;
+  status: "Active" | "Inactive";
 }
 
 // ===== Storage Keys =====
@@ -345,63 +437,45 @@ const KEYS = {
   businessProfile: "pos_business_profile",
   userProfile: "pos_user_profile",
   notifications: "pos_notifications",
+  branches: "pos_branches",
+  warehouses: "pos_warehouses",
+  transfers: "pos_transfers",
+  branchRoles: "pos_branch_roles",
+  duePayments: "pos_due_payments",
 };
 
 // ===== Default Data =====
 const defaultCategories: Category[] = [
-  { id: "1", name: "Electronics", description: "Electronic items" },
-  { id: "2", name: "Clothing", description: "Apparel and garments" },
-  { id: "3", name: "Fruits", description: "Fresh fruits" },
-  { id: "4", name: "Accessories", description: "Fashion accessories" },
+  { id: "1", name: "Prescription Medicines", description: "Prescription-only drugs" },
+  { id: "2", name: "OTC Medicines", description: "Over-the-counter medicines" },
+  { id: "3", name: "Vitamins & Supplements", description: "Vitamins and nutritional supplements" },
+  { id: "4", name: "Medical Supplies", description: "Bandages, gloves, syringes, etc." },
 ];
 
 const defaultBrands: Brand[] = [
-  { id: "1", name: "Samsung" },
-  { id: "2", name: "Apple" },
-  { id: "3", name: "Nike" },
+  { id: "1", name: "Pfizer" },
+  { id: "2", name: "Roche" },
+  { id: "3", name: "Cipla" },
   { id: "4", name: "Generic" },
 ];
 
 const defaultUnits: Unit[] = [
-  { id: "1", name: "Piece", shortName: "pc" },
-  { id: "2", name: "Kilogram", shortName: "kg" },
-  { id: "3", name: "Liter", shortName: "ltr" },
+  { id: "1", name: "Tablet", shortName: "tab" },
+  { id: "2", name: "Capsule", shortName: "cap" },
+  { id: "3", name: "Bottle", shortName: "btl" },
+  { id: "4", name: "Pack", shortName: "pk" },
+  { id: "5", name: "Vial", shortName: "vial" },
 ];
 
-const defaultProducts: Product[] = [
-  { id: "1", name: "T-Shirt", code: "PRD-001", categoryId: "2", brandId: "3", price: 1200, costPrice: 900, retailPrice: 1200, wholesalePrice: 1050, dealerPrice: 1000, stock: 200, alertQty: 20 },
-  { id: "2", name: "Green Grapes", code: "PRD-002", categoryId: "3", brandId: "4", price: 800, costPrice: 500, retailPrice: 800, wholesalePrice: 700, dealerPrice: 650, stock: 400, alertQty: 50 },
-  { id: "3", name: "Ladies Bag", code: "PRD-003", categoryId: "4", brandId: "4", price: 300, costPrice: 180, retailPrice: 300, wholesalePrice: 250, dealerPrice: 230, stock: 200, alertQty: 15 },
-  { id: "4", name: "Laptop", code: "PRD-004", categoryId: "1", brandId: "1", price: 45000, costPrice: 38000, retailPrice: 45000, wholesalePrice: 42000, dealerPrice: 40000, stock: 42, alertQty: 5 },
-  { id: "5", name: "Mobile", code: "PRD-005", categoryId: "1", brandId: "2", price: 25000, costPrice: 20000, retailPrice: 25000, wholesalePrice: 23000, dealerPrice: 22000, stock: 78, alertQty: 10 },
-  { id: "6", name: "Shoe", code: "PRD-006", categoryId: "2", brandId: "3", price: 1250, costPrice: 850, retailPrice: 1250, wholesalePrice: 1100, dealerPrice: 1050, stock: 191, alertQty: 20 },
-  { id: "7", name: "Watch", code: "PRD-007", categoryId: "4", brandId: "1", price: 5000, costPrice: 3500, retailPrice: 5000, wholesalePrice: 4500, dealerPrice: 4200, stock: 89, alertQty: 10 },
-  { id: "8", name: "Banana", code: "PRD-008", categoryId: "3", brandId: "4", price: 120, costPrice: 60, retailPrice: 120, wholesalePrice: 100, dealerPrice: 90, stock: 606, alertQty: 50 },
-];
+const defaultProducts: Product[] = [];
 
-const defaultCustomers: Customer[] = [
-  { id: "1", name: "Moson", phone: "01700000001", type: "Dealer", initialDue: 0, due: 17700 },
-  { id: "2", name: "Robin", phone: "01700000002", type: "Retailer", initialDue: 0, due: 800 },
-  { id: "3", name: "Jack", phone: "01700000003", type: "Wholesaler", initialDue: 0, due: 20500 },
-  { id: "4", name: "Jake", phone: "01700000004", type: "Retailer", initialDue: 0, due: 2000 },
-  { id: "5", name: "Micheal", phone: "01700000005", type: "Dealer", initialDue: 0, due: 2500 },
-];
+const defaultCustomers: Customer[] = [];
 
-const defaultSuppliers: Supplier[] = [
-  { id: "1", name: "MD Rakib", phone: "01800000001", initialDue: 0, due: 500 },
-  { id: "2", name: "Sakil", phone: "01800000002", initialDue: 0, due: 0 },
-  { id: "3", name: "Ahsan Trading", phone: "01800000003", initialDue: 0, due: 3200 },
-];
+const defaultSuppliers: Supplier[] = [];
 
-const defaultSales: Sale[] = [
-  { id: "1", invoiceNo: "S-00018", date: "2025-01-04", customerId: "0", customerName: "Guest", items: [{ productId: "7", name: "Watch", quantity: 1, unitPrice: 5000, discount: 0 }], subtotal: 5000, vat: 0, vatPercent: 0, discount: 0, total: 5000, paid: 5000, due: 0, change: 0, profit: 1500, status: "Paid", returned: false },
-  { id: "2", invoiceNo: "S-00017", date: "2025-01-04", customerId: "1", customerName: "Moson", items: [{ productId: "8", name: "Banana", quantity: 10, unitPrice: 90, discount: 0 }], subtotal: 900, vat: 0, vatPercent: 0, discount: 0, total: 900, paid: 900, due: 0, change: 0, profit: 300, status: "Paid", returned: false },
-  { id: "3", invoiceNo: "S-00016", date: "2025-01-03", customerId: "0", customerName: "Guest", items: [{ productId: "3", name: "Ladies Bag", quantity: 2, unitPrice: 300, discount: 0 }], subtotal: 600, vat: 0, vatPercent: 0, discount: 0, total: 600, paid: 400, due: 200, change: 0, profit: 240, status: "Due", returned: false },
-];
+const defaultSales: Sale[] = [];
 
-const defaultPurchases: Purchase[] = [
-  { id: "1", invoiceNo: "P-00001", date: "2025-01-02", supplierId: "1", supplierName: "MD Rakib", items: [{ productId: "4", name: "Laptop", quantity: 5, unitPrice: 38000 }], subtotal: 190000, discount: 0, total: 190000, paid: 190000, due: 0, status: "Paid", returned: false },
-];
+const defaultPurchases: Purchase[] = [];
 
 const defaultExpenseCategories: ExpenseCategory[] = [
   { id: "1", name: "Rent", description: "Office/shop rent" },
@@ -497,6 +571,9 @@ export const store = {
   getSaleReturns: () => load<SaleReturn>(KEYS.saleReturns, []),
   saveSaleReturns: (r: SaleReturn[]) => save(KEYS.saleReturns, r),
 
+  getDuePayments: () => load<DuePayment>(KEYS.duePayments, []),
+  saveDuePayments: (p: DuePayment[]) => save(KEYS.duePayments, p),
+
   // Purchases
   getPurchases: () => load<Purchase>(KEYS.purchases, defaultPurchases),
   savePurchases: (p: Purchase[]) => save(KEYS.purchases, p),
@@ -569,13 +646,14 @@ export const store = {
   // Business Profile
   getBusinessProfile: (): BusinessProfile => {
     const defaultBusinessProfile: BusinessProfile = {
-      companyName: "Key Doctors Solutions",
-      address: "Your Business Address, City, Country",
-      phone: "+1234567890",
-      email: "info@keydoctors.com",
+      companyName: "RecordKEEPING",
+      shortName: "",
+      address: "",
+      phone: "",
+      email: "info@intelinksolutions.com",
       logo: "",
-      currency: "$",
-      currencyCode: "USD",
+      currency: "GH₵",
+      currencyCode: "GHS",
       currencyPosition: "before",
       darkMode: false,
       isOnline: true,
@@ -588,7 +666,10 @@ export const store = {
       return defaultBusinessProfile;
     }
   },
-  saveBusinessProfile: (p: BusinessProfile) => localStorage.setItem(KEYS.businessProfile, JSON.stringify(p)),
+  saveBusinessProfile: (p: BusinessProfile) => {
+    localStorage.setItem(KEYS.businessProfile, JSON.stringify(p));
+    applyDynamicBranding(p);
+  },
   applyBackendCurrency: (currency?: { symbol?: string; code?: string; position?: string }) => {
     if (!currency) return;
     const profile = store.getBusinessProfile();
@@ -602,19 +683,26 @@ export const store = {
   },
 
   applyBackendBusinessProfile: (data: {
-    company_name?: string; name?: string; address?: string;
-    phone?: string; email?: string; logo?: string;
+    id?: number;
+    company_name?: string; companyName?: string; name?: string; address?: string;
+    phone?: string; phoneNumber?: string; email?: string; logo?: string; pictureUrl?: string;
     currency?: { symbol?: string; code?: string; position?: string };
   }) => {
     if (!data) return;
     const profile = store.getBusinessProfile();
+    // The backend returns camelCase `companyName`/`phoneNumber`/`pictureUrl`
+    // (confirmed against the live API), not the snake_case names this
+    // function originally expected — both are checked so the real business
+    // name/logo actually sync instead of silently staying at their defaults.
+    const rawLogo = data.logo || data.pictureUrl;
     const next: BusinessProfile = {
       ...profile,
-      companyName: data.company_name || data.name || profile.companyName,
+      businessId: data.id ?? profile.businessId,
+      companyName: data.company_name || data.companyName || data.name || profile.companyName,
       address: data.address || profile.address,
-      phone: data.phone || profile.phone,
+      phone: data.phone || data.phoneNumber || profile.phone,
       email: data.email || profile.email,
-      logo: data.logo || profile.logo,
+      logo: rawLogo ? (getImageUrl(rawLogo) ?? profile.logo) : profile.logo,
     };
     if (data.currency) {
       next.currency = data.currency.symbol?.trim() || profile.currency;
@@ -678,6 +766,71 @@ export const store = {
   },
   saveNotifications: (n: AppNotification[]) => save(KEYS.notifications, n),
 
+  // Branches
+  getBranches: () => load<Branch>(KEYS.branches, []),
+  saveBranches: (b: Branch[]) => save(KEYS.branches, b),
+
+  // Warehouses
+  getWarehouses: () => load<Warehouse>(KEYS.warehouses, []),
+  saveWarehouses: (w: Warehouse[]) => save(KEYS.warehouses, w),
+
+  // Transfers
+  getTransfers: () => load<Transfer>(KEYS.transfers, []),
+  saveTransfers: (t: Transfer[]) => save(KEYS.transfers, t),
+
+  // Branch Roles
+  getBranchRoles: () => load<BranchRole>(KEYS.branchRoles, []),
+  saveBranchRoles: (r: BranchRole[]) => save(KEYS.branchRoles, r),
+
+  // Active branch (owner switches; staff stay on assigned branch)
+  getActiveBranchId: (): string | null => localStorage.getItem("pos_active_branch_id"),
+  setActiveBranchId: (id: string | null): void => {
+    if (id) localStorage.setItem("pos_active_branch_id", id);
+    else localStorage.removeItem("pos_active_branch_id");
+  },
+
+  // Branch assigned to this staff user (set from backend profile)
+  getUserBranchId: (): string | null => localStorage.getItem("pos_user_branch_id"),
+  setUserBranchId: (id: string | null): void => {
+    if (id) localStorage.setItem("pos_user_branch_id", id);
+    else localStorage.removeItem("pos_user_branch_id");
+  },
+
+  /**
+   * Returns the branch that should be used for ALL create/read operations in the
+   * current session.  For owners this is whatever branch they switched to (or null
+   * = "all branches" view). For staff it is their assigned branch.
+   */
+  getEffectiveBranchId: (): string | null => {
+    return localStorage.getItem("pos_active_branch_id") ?? localStorage.getItem("pos_user_branch_id");
+  },
+
   // Utility
   getNextInvoiceNo: () => nextInvoice("S", KEYS.sales, defaultSales),
+
+  /**
+   * Wipe all cached business data from localStorage.
+   * Auth token, server URL, and user prefs are preserved so the user stays
+   * logged in.  The next sync will re-populate everything from the server.
+   */
+  clearAllAppData: (): void => {
+    const preserve = new Set([
+      "pos_auth_token",
+      "pos_api_base_url",
+      "pos_user_role",
+      "pos_user_visibility",
+      "pos_active_branch_id",
+      "pos_user_branch_id",
+      "pos_security_prefs",
+      "pos_security_pin",
+      "pos_alert_prefs",
+      "pos_offline_queue",
+    ]);
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && !preserve.has(key)) toRemove.push(key);
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
+  },
 };

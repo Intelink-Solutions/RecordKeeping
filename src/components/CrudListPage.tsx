@@ -8,7 +8,8 @@ import { Search, Plus, MoreVertical, Edit2, Trash2, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { store } from "@/lib/store";
-import { UnauthenticatedError, tokenStorage } from "@/lib/api";
+import { UnauthenticatedError, NetworkDownError, tokenStorage } from "@/lib/api";
+import { enqueueOfflineOp } from "@/lib/offline-queue";
 import ConfirmDialog from "@/components/ConfirmDialog";
 
 interface CrudListPageProps<T extends { id: string }> {
@@ -27,11 +28,15 @@ interface CrudListPageProps<T extends { id: string }> {
   onApiDelete?: (id: string) => Promise<void>;
   /** Return an error string to block save, or null/undefined to proceed */
   validate?: (item: Partial<T>) => string | null | undefined;
+  /** Hide Add/Edit/Delete UI for read-only viewers (defaults to true — most
+   * consumers are fully manageable; pass false for e.g. branch staff who can
+   * view but not create/edit). The backend still enforces this independently. */
+  canManage?: boolean;
 }
 
 function CrudListPage<T extends { id: string }>({
   title, items: initialItems, onSave, columns, renderForm, createDefaults, searchKey, displayName,
-  apiResource: _apiResource, onApiCreate, onApiUpdate, onApiDelete, validate,
+  apiResource: _apiResource, onApiCreate, onApiUpdate, onApiDelete, validate, canManage = true,
 }: CrudListPageProps<T>) {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -115,10 +120,28 @@ function CrudListPage<T extends { id: string }>({
           onSave(confirmed);
         }
       } catch (e: unknown) {
-        // Revert to pre-save state
+        if (e instanceof UnauthenticatedError) {
+          setItems(previousItems);
+          onSave(previousItems);
+          handleAuthError();
+          return;
+        }
+        if (e instanceof NetworkDownError) {
+          // Keep the optimistic update — queue for replay when internet returns
+          const qPath = _apiResource ? `/hrm/${_apiResource}` : "";
+          if (qPath) {
+            if (isEdit) {
+              enqueueOfflineOp("PUT", `${qPath}/${(editItem as T).id}`, editItem as Record<string, unknown>);
+            } else {
+              enqueueOfflineOp("POST", qPath, editItem as Record<string, unknown>);
+            }
+          }
+          toast({ title: `${displayName} saved offline`, description: "Will sync when internet returns." });
+          return;
+        }
+        // Revert to pre-save state on other errors
         setItems(previousItems);
         onSave(previousItems);
-        if (e instanceof UnauthenticatedError) { handleAuthError(); return; }
         const msg = e instanceof Error ? e.message : "Save failed";
         toast({ title: `Could not save — ${msg}`, variant: "destructive" });
       }
@@ -160,9 +183,20 @@ function CrudListPage<T extends { id: string }>({
       try {
         await onApiDelete(id);
       } catch (e: unknown) {
+        if (e instanceof UnauthenticatedError) {
+          setItems(previousItems);
+          onSave(previousItems);
+          handleAuthError();
+          return;
+        }
+        if (e instanceof NetworkDownError) {
+          const qPath = _apiResource ? `/hrm/${_apiResource}` : "";
+          if (qPath) enqueueOfflineOp("DELETE", `${qPath}/${id}`);
+          toast({ title: `${displayName} deleted offline`, description: "Will sync when internet returns." });
+          return;
+        }
         setItems(previousItems);
         onSave(previousItems);
-        if (e instanceof UnauthenticatedError) { handleAuthError(); return; }
         const msg = e instanceof Error ? e.message : "Delete failed";
         toast({ title: msg, variant: "destructive" });
       }
@@ -215,9 +249,9 @@ function CrudListPage<T extends { id: string }>({
   const isEditMode = !!(editItem && (editItem as T).id && items.find(i => i.id === (editItem as T).id));
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title={title} rightAction={
-        selectedIds.length > 0 ? (
+        !canManage ? undefined : selectedIds.length > 0 ? (
           <button onClick={() => setConfirmMulti(true)} className="text-destructive text-sm font-semibold">
             Delete ({selectedIds.length})
           </button>
@@ -241,16 +275,18 @@ function CrudListPage<T extends { id: string }>({
               className="bg-card rounded-xl p-4 shadow-sm border border-border flex items-center gap-3 cursor-pointer active:bg-accent/50 transition-colors"
               onClick={() => { setShowView(item); setActiveMenu(null); }}
             >
-              <div onClick={(e) => e.stopPropagation()}>
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(item.id)}
-                  onChange={(e) => {
-                    setSelectedIds(e.target.checked ? [...selectedIds, item.id] : selectedIds.filter((id) => id !== item.id));
-                  }}
-                  className="w-4 h-4 rounded border-border"
-                />
-              </div>
+              {canManage && (
+                <div onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(item.id)}
+                    onChange={(e) => {
+                      setSelectedIds(e.target.checked ? [...selectedIds, item.id] : selectedIds.filter((id) => id !== item.id));
+                    }}
+                    className="w-4 h-4 rounded border-border"
+                  />
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 {columns.slice(0, 2).map((col) => (
                   <p key={String(col.key)} className={col.key === columns[0].key ? "font-semibold text-sm truncate" : "text-xs text-muted-foreground truncate"}>
@@ -267,12 +303,16 @@ function CrudListPage<T extends { id: string }>({
                     <button onClick={() => { setShowView(item); setActiveMenu(null); }} className="w-full px-3 py-2 text-xs flex items-center gap-2 hover:bg-muted">
                       <Eye size={14} /> View
                     </button>
-                    <button onClick={() => openEdit(item)} className="w-full px-3 py-2 text-xs flex items-center gap-2 hover:bg-muted">
-                      <Edit2 size={14} /> Edit
-                    </button>
-                    <button onClick={() => requestDelete(item.id)} className="w-full px-3 py-2 text-xs flex items-center gap-2 hover:bg-muted text-destructive">
-                      <Trash2 size={14} /> Delete
-                    </button>
+                    {canManage && (
+                      <>
+                        <button onClick={() => openEdit(item)} className="w-full px-3 py-2 text-xs flex items-center gap-2 hover:bg-muted">
+                          <Edit2 size={14} /> Edit
+                        </button>
+                        <button onClick={() => requestDelete(item.id)} className="w-full px-3 py-2 text-xs flex items-center gap-2 hover:bg-muted text-destructive">
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

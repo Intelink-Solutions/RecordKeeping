@@ -135,8 +135,8 @@ export async function evaluateAlertNotifications(): Promise<void> {
     if (dueCount > 0 && meta.dueSignature !== signature) {
       await appendNotification({
         id: `alert-due-${signature}`,
-        title: `Due payment reminder (${dueCount})`,
-        message: `Customer due: ${customerDue.toFixed(2)} | Supplier due: ${supplierDue.toFixed(2)}.`,
+        title: `Debt payment reminder (${dueCount})`,
+        message: `Customer debt: ${customerDue.toFixed(2)} | Supplier debt: ${supplierDue.toFixed(2)}.`,
         createdAt: now.toISOString(),
         type: "warning",
         read: false,

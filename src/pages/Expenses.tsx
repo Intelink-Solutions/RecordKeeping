@@ -43,8 +43,8 @@ const Expenses = () => {
       await syncLiveBusinessData();
       setForm({ categoryId: "", amount: "", description: "", paymentType: "Cash" }); setShowAdd(false);
       showSaved("Expense added!");
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to add expense", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to add expense", variant: "destructive" });
     } finally { setSaving(false); }
   };
 
@@ -59,7 +59,7 @@ const Expenses = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Expenses" />
       <div className="px-4 py-3 space-y-3">
         <div className="bg-destructive/10 rounded-xl p-4 text-center">

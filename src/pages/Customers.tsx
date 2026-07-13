@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Plus, Search, Edit, Trash2, ChevronRight } from "lucide-react";
+import { Plus, Search, Edit, Trash2, ChevronRight, CreditCard } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import PayDueDialog, { PayDueParty } from "@/components/PayDueDialog";
 import { store, Customer } from "@/lib/store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { apiCreateParty, apiUpdateParty, apiDeleteParty } from "@/lib/api";
 import { syncLiveBusinessData } from "@/lib/live-sync";
 import { useLiveData, showSaved } from "@/hooks/use-live-data";
+import { validateOptionalEmail, validateOptionalPhone } from "@/lib/validators";
 
 const typeColors: Record<string, string> = { Dealer: "#e74c3c", Retailer: "#e67e22", Wholesaler: "#27ae60" };
 
@@ -25,6 +27,8 @@ const Customers = () => {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
+  const [payParty, setPayParty] = useState<PayDueParty | null>(null);
+  const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", type: "Retailer" as Customer["type"], initialDue: "0" });
@@ -37,6 +41,10 @@ const Customers = () => {
 
   const addCustomer = async () => {
     if (!form.name.trim()) return;
+    const emailError = validateOptionalEmail(form.email);
+    if (emailError) { toast({ title: emailError, variant: "destructive" }); return; }
+    const phoneError = validateOptionalPhone(form.phone);
+    if (phoneError) { toast({ title: phoneError, variant: "destructive" }); return; }
     setSaving(true);
     try {
       const due = Number(form.initialDue) || 0;
@@ -52,13 +60,17 @@ const Customers = () => {
       await syncLiveBusinessData();
       resetForm(); setShowAdd(false);
       showSaved("Customer added!");
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to add customer", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to add customer", variant: "destructive" });
     } finally { setSaving(false); }
   };
 
   const saveEdit = async () => {
     if (!editCustomer) return;
+    const emailError = validateOptionalEmail(editCustomer.email);
+    if (emailError) { toast({ title: emailError, variant: "destructive" }); return; }
+    const phoneError = validateOptionalPhone(editCustomer.phone);
+    if (phoneError) { toast({ title: phoneError, variant: "destructive" }); return; }
     setSaving(true);
     try {
       await apiUpdateParty(editCustomer.id, {
@@ -71,8 +83,8 @@ const Customers = () => {
       await syncLiveBusinessData();
       setEditCustomer(null);
       showSaved("Customer updated!");
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to update customer", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to update customer", variant: "destructive" });
     } finally { setSaving(false); }
   };
 
@@ -83,8 +95,8 @@ const Customers = () => {
       await apiDeleteParty(confirmDeleteId);
       await syncLiveBusinessData();
       showSaved("Customer deleted");
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to delete customer", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to delete customer", variant: "destructive" });
     } finally {
       setDeleting(false);
       setConfirmDeleteId(null);
@@ -92,7 +104,7 @@ const Customers = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Customers" />
       <div className="px-4 py-3 space-y-3">
         {!canManageData && (
@@ -110,9 +122,18 @@ const Customers = () => {
               {c.phone && <p className="text-[11px] text-muted-foreground">{c.phone}</p>}
             </div>
             <div className="text-right">
-              {c.due > 0 && <><p className="font-bold text-sm">{formatCurrency(c.due)}</p><p className="text-[10px] text-warning font-medium">Due</p></>}
+              {c.due > 0 && <><p className="font-bold text-sm">{formatCurrency(c.due)}</p><p className="text-[10px] text-warning font-medium">Debt</p></>}
             </div>
             <div className="flex gap-1">
+              {canManageData && c.due > 0 && (
+                <button
+                  onClick={() => { setPayParty({ id: c.id, name: c.name, due: c.due, source: "customer" }); setPayDialogOpen(true); }}
+                  className="p-1"
+                  aria-label="Record payment"
+                >
+                  <CreditCard size={14} className="text-primary" />
+                </button>
+              )}
               {canManageData && (
                 <>
                   <button onClick={() => setEditCustomer(c)} className="p-1"><Edit size={14} className="text-muted-foreground" /></button>
@@ -137,7 +158,7 @@ const Customers = () => {
             <Input placeholder="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
             <Input placeholder="Address" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} />
             <Select value={form.type} onValueChange={v => setForm({ ...form, type: v as Customer["type"] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Retailer">Retailer</SelectItem><SelectItem value="Wholesaler">Wholesaler</SelectItem><SelectItem value="Dealer">Dealer</SelectItem></SelectContent></Select>
-            <Input placeholder="Initial Due" type="number" value={form.initialDue} onChange={e => setForm({ ...form, initialDue: e.target.value })} />
+            <Input placeholder="Initial Debt" type="number" value={form.initialDue} onChange={e => setForm({ ...form, initialDue: e.target.value })} />
             <button onClick={addCustomer} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Saving..." : "Save"}</button>
           </div>
         </DialogContent>
@@ -164,6 +185,7 @@ const Customers = () => {
         onCancel={() => setConfirmDeleteId(null)}
         loading={deleting}
       />
+      <PayDueDialog party={payParty} open={payDialogOpen} onOpenChange={setPayDialogOpen} />
 
       <BottomNav />
     </div>

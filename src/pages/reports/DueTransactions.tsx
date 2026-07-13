@@ -21,7 +21,7 @@ const DueTransactions = () => {
 
   return (
     <ReportPage
-      title="Due Transactions"
+      title="Debt Transactions"
       data={data}
       columns={[
         { key: "invoiceNo", label: "Invoice" },
@@ -29,10 +29,10 @@ const DueTransactions = () => {
         { key: "customerName", label: "Customer" },
         { key: "total", label: "Total", render: (d) => <span>{formatCurrency(d.total, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
         { key: "paid", label: "Paid", render: (d) => <span className="text-green-600">{formatCurrency(d.paid, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
-        { key: "due", label: "Due", render: (d) => <span className="text-red-600 font-semibold">{formatCurrency(d.due, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
+        { key: "due", label: "Debt", render: (d) => <span className="text-red-600 font-semibold">{formatCurrency(d.due, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
       ]}
       summaryCards={[
-        { label: "Total Due", value: formatCurrency(totalDue), color: "#e74c3c" },
+        { label: "Total Debt", value: formatCurrency(totalDue), color: "#e74c3c" },
         { label: "Total Paid", value: formatCurrency(totalPaid), color: "#27ae60" },
       ]}
       searchKeys={["invoiceNo", "customerName"]}

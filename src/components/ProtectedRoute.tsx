@@ -7,6 +7,7 @@ import { evaluateAlertNotifications } from "@/lib/alert-notifications";
 import { syncLiveBusinessData } from "@/lib/live-sync";
 import { store } from "@/lib/store";
 import { getAutoLockTimeoutMs, hasPinSet, loadSecurityPrefs, SECURITY_PREFS_UPDATED_EVENT, verifyPin } from "@/lib/security";
+import PullToRefresh from "@/components/PullToRefresh";
 
 const HIDDEN_AT_KEY = "pos_security_hidden_at";
 const UNLOCKED_KEY = "pos_security_unlocked";
@@ -322,7 +323,11 @@ const ProtectedRoute = () => {
     );
   }
 
-  return <Outlet />;
+  return (
+    <PullToRefresh>
+      <Outlet />
+    </PullToRefresh>
+  );
 };
 
 export default ProtectedRoute;

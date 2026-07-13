@@ -26,7 +26,7 @@ const HRMIndex = () => {
   const visibleItems = filterMenuItems(hrmItems, role);
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="HRM" />
       <div className="px-4 py-4 space-y-2">
         {visibleItems.map((item) => (

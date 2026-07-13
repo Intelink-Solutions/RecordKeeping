@@ -31,8 +31,8 @@ const Units = () => {
       await apiCreateUnit(name.trim());
       await syncLiveBusinessData();
       setName(""); setShowAdd(false); showSaved("Unit added!");
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to add unit", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to add unit", variant: "destructive" });
     } finally { setSaving(false); }
   };
 
@@ -43,8 +43,8 @@ const Units = () => {
       await apiUpdateUnit(editItem.id, editItem.name);
       await syncLiveBusinessData();
       setEditItem(null);
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to update unit", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to update unit", variant: "destructive" });
     } finally { setSaving(false); }
   };
 
@@ -52,13 +52,13 @@ const Units = () => {
     try {
       await apiDeleteUnit(id);
       await syncLiveBusinessData();
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to delete unit", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to delete unit", variant: "destructive" });
     }
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Units" />
       <div className="px-4 py-3 space-y-3">
         <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>

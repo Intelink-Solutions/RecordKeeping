@@ -136,7 +136,7 @@ const InventoryHistory = () => {
   const lowStockCount = products.filter((p) => p.stock <= p.alertQty && p.alertQty > 0).length;
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Inventory History" />
 
       <div className="px-4 py-4 space-y-4">

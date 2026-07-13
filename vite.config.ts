@@ -12,19 +12,19 @@ export default defineConfig(() => ({
     },
     proxy: {
       "/api": {
-        target: "https://keydoctors.veewiss.com",
+        target: "http://localhost:8000",
         changeOrigin: true,
-        secure: true,
+        secure: false,
         configure: (proxy) => {
           proxy.on("proxyReq", (proxyReq) => {
             proxyReq.setHeader("Connection", "keep-alive");
           });
         },
       },
-      "/business": { target: "https://keydoctors.veewiss.com", changeOrigin: true, secure: true },
-      "/public":   { target: "https://keydoctors.veewiss.com", changeOrigin: true, secure: true },
-      "/uploads":  { target: "https://keydoctors.veewiss.com", changeOrigin: true, secure: true },
-      "/storage":  { target: "https://keydoctors.veewiss.com", changeOrigin: true, secure: true },
+      "/business": { target: "http://localhost:8000", changeOrigin: true, secure: false },
+      "/public":   { target: "http://localhost:8000", changeOrigin: true, secure: false },
+      "/uploads":  { target: "http://localhost:8000", changeOrigin: true, secure: false },
+      "/storage":  { target: "http://localhost:8000", changeOrigin: true, secure: false },
     },
   },
   plugins: [react()],

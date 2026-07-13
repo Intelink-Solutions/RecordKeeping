@@ -9,14 +9,14 @@ const SupplierDueReport = () => {
 
   return (
     <ReportPage
-      title="Supplier Due Report"
+      title="Supplier Debt Report"
       data={withDue}
       columns={[
         { key: "name", label: "Supplier" },
         { key: "phone", label: "Phone" },
-        { key: "due", label: "Due", render: (s) => <span className="font-semibold text-destructive">{formatCurrency(s.due, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
+        { key: "due", label: "Debt", render: (s) => <span className="font-semibold text-destructive">{formatCurrency(s.due, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
       ]}
-      summaryCards={[{ label: "Total Due", value: formatCurrency(totalDue), color: "#e74c3c" }]}
+      summaryCards={[{ label: "Total Debt", value: formatCurrency(totalDue), color: "#e74c3c" }]}
       searchKeys={["name", "phone"]}
       showDateFilter={false}
     />

@@ -2,14 +2,9 @@
 // API Client — live first with route fallback support
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_BASE_URLS: string[] = [
-  "https://keydoctors.veewiss.com/api/v1",
-  "https://keydoctors.veewiss.com/public/api/v1",
-];
+const DEFAULT_BASE_URLS: string[] = ["https://keydoctors.veewiss.com/api/v1"];
 
-const DEFAULT_WEB_BASE_URLS: string[] = [
-  "https://keydoctors.veewiss.com",
-];
+const DEFAULT_WEB_BASE_URLS: string[] = ["https://keydoctors.veewiss.com"];
 
 const API_BASE_OVERRIDE_KEY = "pos_api_base_url";
 const TOKEN_KEY = "pos_auth_token";
@@ -19,11 +14,32 @@ function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+// The Vite dev server (vite.config.ts) proxies `/api`, `/business`, `/public`,
+// `/uploads`, and `/storage` to `http://localhost:8000` so the browser only
+// ever talks to its own origin (no CORS preflight involved). But that only
+// helps if we actually request relative paths — a request to the absolute
+// `http://localhost:8000/...` URL always goes cross-origin directly and
+// depends on the backend sending CORS headers, which it doesn't for every
+// route (e.g. `/business/*`). When the effective base still points at the
+// same host:port the proxy targets, prefer the relative form so requests
+// stay same-origin. A custom remote override (e.g. a staging URL configured
+// in Settings) is left untouched since the dev proxy can't reach it anyway.
+const DEV_PROXY_TARGET = /^https?:\/\/localhost:8000(\/.*)?$/;
+
+function toDevProxyPath(url: string): string | null {
+  if (!import.meta.env.DEV) return null;
+  const match = url.match(DEV_PROXY_TARGET);
+  if (!match) return null;
+  return match[1] ?? "";
+}
+
 function getCandidateBaseUrls(): string[] {
   const override = localStorage.getItem(API_BASE_OVERRIDE_KEY)?.trim();
   const preferred = activeBaseUrl ?? override;
+  const devProxyPath = toDevProxyPath(preferred ?? DEFAULT_BASE_URLS[0]);
 
   const all = [
+    ...(devProxyPath !== null ? [devProxyPath] : []),
     ...(preferred ? [preferred] : []),
     ...DEFAULT_BASE_URLS,
   ].map(normalizeBaseUrl);
@@ -31,22 +47,53 @@ function getCandidateBaseUrls(): string[] {
   return [...new Set(all)];
 }
 
+function stripApiPath(url: string): string {
+  return url
+    .replace(/\/public\/api\/v\d+\/?$/, "")
+    .replace(/\/api\/v\d+\/?$/, "")
+    .replace(/\/public\/?$/, "");
+}
+
 function getCandidateWebBaseUrls(): string[] {
-  return [...new Set(DEFAULT_WEB_BASE_URLS.map(normalizeBaseUrl))];
+  const override = localStorage.getItem(API_BASE_OVERRIDE_KEY)?.trim();
+  const preferred = activeBaseUrl ?? override;
+  const webBase = preferred ? stripApiPath(preferred) : null;
+  const devProxyPath = toDevProxyPath(webBase ?? DEFAULT_WEB_BASE_URLS[0]);
+
+  const all = [
+    ...(devProxyPath !== null ? [devProxyPath] : []),
+    ...(webBase ? [webBase] : []),
+    ...DEFAULT_WEB_BASE_URLS,
+  ].map(normalizeBaseUrl);
+
+  return [...new Set(all)];
 }
 
 // ── Token storage ──────────────────────────────────────────────────────────────
 const OFFLINE_SENTINEL = "__offline__";
 
 export const tokenStorage = {
-  get: (): string | null => localStorage.getItem(TOKEN_KEY),
+  // "Remember me" unchecked stores the token in sessionStorage instead of
+  // localStorage, so it doesn't survive the browser/app being closed.
+  get: (): string | null => localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY),
   getReal: (): string | null => {
-    const t = localStorage.getItem(TOKEN_KEY);
+    const t = tokenStorage.get();
     return t && t !== OFFLINE_SENTINEL ? t : null;
   },
-  set: (t: string): void => { localStorage.setItem(TOKEN_KEY, t); },
-  clear: (): void => { localStorage.removeItem(TOKEN_KEY); },
-  isOffline: (): boolean => localStorage.getItem(TOKEN_KEY) === OFFLINE_SENTINEL,
+  set: (t: string, remember = true): void => {
+    if (remember) {
+      localStorage.setItem(TOKEN_KEY, t);
+      sessionStorage.removeItem(TOKEN_KEY);
+    } else {
+      sessionStorage.setItem(TOKEN_KEY, t);
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  },
+  clear: (): void => {
+    localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+  },
+  isOffline: (): boolean => tokenStorage.get() === OFFLINE_SENTINEL,
 };
 
 // ── Custom errors ──────────────────────────────────────────────────────────────
@@ -71,6 +118,23 @@ export class NetworkDownError extends Error {
   constructor(message = "Server is unreachable.") {
     super(message);
     this.name = "NetworkDownError";
+  }
+}
+
+/**
+ * Thrown for any non-2xx API response that isn't handled by a more specific
+ * error class. Carries the real HTTP status so callers (e.g. multiPathCreate's
+ * "stop retrying on validation errors" check) can branch on `status` instead
+ * of guessing from the message text — a 422 whose message happens not to
+ * contain the word "validation" was previously falling through to the next
+ * (broken) candidate path instead of surfacing the real error.
+ */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
   }
 }
 
@@ -149,7 +213,20 @@ async function sendWithFallback<T>(path: string, options: RequestInit = {}): Pro
   for (const base of bases) {
     try {
       const res = await fetch(`${base}${path}`, { ...options, headers });
+
+      // Read Content-Type BEFORE consuming the body — a web base URL may
+      // redirect GET /users to the HTML login page (200 text/html), which must
+      // not be mistaken for a real JSON success response.
+      const contentType = res.headers.get("content-type") ?? "";
+      const isHtmlResponse = contentType.includes("text/html") && !contentType.includes("json");
+
       const data = await res.json().catch(() => ({}));
+
+      // Redirect to login or other HTML page — not real data; try next base URL.
+      if (res.ok && isHtmlResponse) {
+        allContinuesWereNetworkErrors = false;
+        continue;
+      }
 
       if (res.ok) {
         activeBaseUrl = base;
@@ -169,12 +246,26 @@ async function sendWithFallback<T>(path: string, options: RequestInit = {}): Pro
       // This is a valid auth response and should not trigger route fallback.
       if (isInvalidCredentialResponse(res.status, data)) {
         allContinuesWereNetworkErrors = false;
-        throw new Error(message);
+        throw new ApiError(message, res.status);
       }
 
       // Route missing on this base; try next candidate.
       if (looksLikeRouteNotFound(res.status, data)) {
         allContinuesWereNetworkErrors = false; // server is up, just wrong route
+        continue;
+      }
+
+      // Method not allowed on this base URL (e.g. web route only allows GET but
+      // the same path under /api/v1 may support POST/PUT/DELETE).  Try next base.
+      if (res.status === 405) {
+        allContinuesWereNetworkErrors = false;
+        continue;
+      }
+
+      // CSRF token required — this is a web route.  The API base URL doesn't
+      // use CSRF; try it instead.
+      if (res.status === 419) {
+        allContinuesWereNetworkErrors = false;
         continue;
       }
 
@@ -188,13 +279,14 @@ async function sendWithFallback<T>(path: string, options: RequestInit = {}): Pro
           activeBaseUrl = base;
           return { data: retryData as T, status: retryRes.status, baseUrl: base };
         }
-        throw new Error(
-          extractApiMessage(retryData) ?? "Too many requests — please wait a moment and try again."
+        throw new ApiError(
+          extractApiMessage(retryData) ?? "Too many requests — please wait a moment and try again.",
+          retryRes.status
         );
       }
 
       allContinuesWereNetworkErrors = false;
-      throw new Error(message);
+      throw new ApiError(message, res.status);
     } catch (err) {
       if (err instanceof Error && err.message) {
         lastErrorMessage = err.message;
@@ -234,7 +326,15 @@ async function sendWithCustomBases<T>(path: string, bases: string[], options: Re
   for (const base of bases) {
     try {
       const res = await fetch(`${base}${path}`, { ...options, headers });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      const isHtmlResponse = contentType.includes("text/html") && !contentType.includes("json");
       const data = await res.json().catch(() => ({}));
+
+      if (res.ok && isHtmlResponse) {
+        allContinuesWereNetworkErrors = false;
+        continue;
+      }
 
       if (res.ok) {
         return { data: data as T, status: res.status, baseUrl: base };
@@ -251,7 +351,7 @@ async function sendWithCustomBases<T>(path: string, bases: string[], options: Re
 
       if (isInvalidCredentialResponse(res.status, data)) {
         allContinuesWereNetworkErrors = false;
-        throw new Error(message);
+        throw new ApiError(message, res.status);
       }
 
       if (looksLikeRouteNotFound(res.status, data)) {
@@ -259,13 +359,23 @@ async function sendWithCustomBases<T>(path: string, bases: string[], options: Re
         continue;
       }
 
+      if (res.status === 405) {
+        allContinuesWereNetworkErrors = false;
+        continue;
+      }
+
+      if (res.status === 419) {
+        allContinuesWereNetworkErrors = false;
+        continue;
+      }
+
       if (res.status === 429) {
         allContinuesWereNetworkErrors = false;
-        throw new Error("Too many requests — please wait a moment and try again.");
+        throw new ApiError("Too many requests — please wait a moment and try again.", 429);
       }
 
       allContinuesWereNetworkErrors = false;
-      throw new Error(message);
+      throw new ApiError(message, res.status);
     } catch (err) {
       if (err instanceof Error && err.message) {
         lastErrorMessage = err.message;
@@ -410,6 +520,60 @@ export async function apiResendOtp(email: string): Promise<{ message: string }> 
 }
 
 /**
+ * POST /send-reset-code
+ * Sends a numeric password-reset code to the given email.
+ */
+export async function apiSendResetCode(email: string): Promise<{ message: string }> {
+  const { data, status } = await sendWithFallback<{ message?: string }>("/send-reset-code", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+
+  if (status !== 200) {
+    throw new Error(extractApiMessage(data) ?? "Could not send reset code.");
+  }
+
+  return { message: data.message ?? "Reset code sent." };
+}
+
+/**
+ * POST /verify-reset-code
+ * Confirms the code emailed to the user matches and hasn't expired.
+ */
+export async function apiVerifyResetCode(email: string, code: string): Promise<void> {
+  const { data, status } = await sendWithFallback<{ message?: string; error?: string }>("/verify-reset-code", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code }),
+  });
+
+  if (status !== 200) {
+    throw new Error(extractApiMessage(data) ?? "Invalid or expired code.");
+  }
+}
+
+/**
+ * POST /password-reset
+ * Sets a new password for the given email. Only call this after
+ * `apiVerifyResetCode` has succeeded for the same email — the backend does
+ * not re-check the code at this step.
+ */
+export async function apiResetPassword(email: string, password: string): Promise<{ message: string }> {
+  const { data, status } = await sendWithFallback<{ message?: string }>("/password-reset", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (status !== 200) {
+    throw new Error(extractApiMessage(data) ?? "Could not reset password.");
+  }
+
+  return { message: data.message ?? "Password reset." };
+}
+
+/**
  * GET /sign-out — revokes the current token on the server, then clears storage.
  */
 export async function apiSignOut(): Promise<void> {
@@ -498,11 +662,18 @@ export async function apiSaveUserProfile(body: ApiUserProfileUpdate): Promise<vo
 export interface ApiBusinessProfile {
   id?: number;
   company_name?: string;
+  /** Confirmed live field name from BusinessController@index — the backend
+   * returns camelCase `companyName`, not `company_name`. Both are checked. */
+  companyName?: string;
   name?: string;
   address?: string;
   phone?: string;
+  phoneNumber?: string;
   email?: string;
   logo?: string;
+  /** Confirmed live field name from BusinessController@index — the backend
+   * returns `pictureUrl` (a relative upload path), not `logo`. */
+  pictureUrl?: string;
   currency?: CurrencyInfo;
 }
 
@@ -512,13 +683,13 @@ export interface ApiBusinessProfile {
  */
 export async function apiGetBusinessProfile(): Promise<ApiBusinessProfile | null> {
   // Try common endpoint paths used by POS backends
-  const endpoints = ["/business-profile", "/business", "/settings/business", "/shop"];
+  const endpoints = ["/business", "/business-profile", "/settings/business", "/shop"];
   for (const path of endpoints) {
     try {
       const payload = await request<{ data?: ApiBusinessProfile } | ApiBusinessProfile>(path);
       if (payload && typeof payload === "object") {
         const data = (payload as { data?: ApiBusinessProfile }).data ?? (payload as ApiBusinessProfile);
-        if (data && (data.company_name || data.name || data.email)) {
+        if (data && (data.company_name || data.companyName || data.name || data.email)) {
           return data;
         }
       }
@@ -530,33 +701,43 @@ export async function apiGetBusinessProfile(): Promise<ApiBusinessProfile | null
 }
 
 /**
- * POST /business-profile  — save updated business settings to the server.
+ * Save updated business settings to the server.
+ *
+ * Confirmed against the live backend's BusinessController: the update route
+ * is `PUT /business/{id}` (an apiResource — NOT a bare `/business`), it
+ * expects `companyName`/`phoneNumber`/`pictureUrl` (not the snake_case names
+ * this function sent previously), and `pictureUrl` must be an uploaded image
+ * file, not a string. The old version POSTed to `/business` first on every
+ * save, which hits the *create* endpoint and — since that endpoint has no
+ * "does this user already have a business" guard — would have silently
+ * created a duplicate business record instead of updating the existing one.
+ *
+ * `businessId` comes from `store.getBusinessProfile().businessId`, set by
+ * `applyBackendBusinessProfile` the first time the profile is fetched. If
+ * it's not known yet (a brand-new account with no business at all), this
+ * falls back to `POST /business` to create one.
  */
 export async function apiSaveBusinessProfile(body: {
+  businessId?: number;
   company_name?: string;
   address?: string;
   phone?: string;
-  email?: string;
-  logo?: string;
+  logoFile?: File;
 }): Promise<void> {
-  const endpoints = ["/business-profile", "/business", "/settings/business", "/shop"];
-  for (const path of endpoints) {
-    try {
-      await request(path, { method: "POST", body: JSON.stringify(body) });
-      return;
-    } catch {
-      // Try next endpoint
-    }
+  const fd = new FormData();
+  if (body.company_name) fd.append("companyName", body.company_name);
+  if (body.address) fd.append("address", body.address);
+  if (body.phone) fd.append("phoneNumber", body.phone);
+  if (body.logoFile instanceof File) fd.append("pictureUrl", body.logoFile);
+
+  if (body.businessId) {
+    // Laravel can't parse multipart PUT bodies — POST with _method spoofing.
+    fd.append("_method", "PUT");
+    await request(`/business/${body.businessId}`, { method: "POST", body: fd });
+    return;
   }
-  // PUT fallback
-  for (const path of endpoints) {
-    try {
-      await request(path, { method: "PUT", body: JSON.stringify(body) });
-      return;
-    } catch {
-      // ignore
-    }
-  }
+
+  await request("/business", { method: "POST", body: fd });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -663,7 +844,9 @@ function asDashboardData(payload: unknown): DashboardData {
 
 export async function apiGetSummary(date?: string): Promise<DashboardSummaryData> {
   const params = date ? { date } : undefined;
-  const endpoints = ["/business/summary", "/summary"];
+  // /business/summary is PUT/PATCH-only on the live backend (405 on GET) —
+  // /summary is the one that actually answers this request, tried first.
+  const endpoints = ["/summary", "/business/summary"];
 
   for (const path of endpoints) {
     try {
@@ -686,7 +869,9 @@ export async function apiGetDashboard(
   if (fromDate) params.from_date = fromDate;
   if (toDate) params.to_date = toDate;
 
-  const endpoints = ["/business/dashboard", "/dashboard"];
+  // /business/dashboard is PUT/PATCH-only on the live backend (405 on GET) —
+  // /dashboard is the one that actually answers this request, tried first.
+  const endpoints = ["/dashboard", "/business/dashboard"];
   for (const path of endpoints) {
     try {
       const payload = await apiGet<unknown>(path, params);
@@ -982,6 +1167,7 @@ export interface ApiProductBody {
   category_id?: string | null;
   brand_id?: string | null;
   unit_id?: string | null;
+  branch_id?: string | null;
   alert_qty?: number;
   productManufacturer?: string;
   productSalePrice?: number;
@@ -1021,6 +1207,7 @@ function buildProductRequestBody(body: ApiProductBody): FormData {
     ["category_id", body.category_id],
     ["brand_id", body.brand_id],
     ["unit_id", body.unit_id],
+    ["branch_id", body.branch_id],
     ["alert_qty", body.alert_qty],
     ["productManufacturer", body.productManufacturer],
     ["productSalePrice", body.productSalePrice],
@@ -1153,6 +1340,7 @@ export interface ApiSaleProduct {
 export interface ApiSaleBody {
   party_id?: string | null;
   vat_id?: string | null;
+  branch_id?: string | null;
   products: ApiSaleProduct[];
   payments: Array<{ type: string; amount: number; reference_id?: string }>;
   saleDate: string;
@@ -1168,6 +1356,7 @@ export async function apiCreateSale(body: ApiSaleBody): Promise<unknown> {
   const formData = new FormData();
   if (body.party_id) formData.append("party_id", body.party_id);
   if (body.vat_id) formData.append("vat_id", body.vat_id);
+  if (body.branch_id) formData.append("branch_id", body.branch_id);
   formData.append("products", JSON.stringify(body.products));
   formData.append("payments", JSON.stringify(body.payments));
   formData.append("saleDate", body.saleDate);
@@ -1242,6 +1431,7 @@ export interface ApiPurchaseProduct {
 export interface ApiPurchaseBody {
   party_id: string;
   vat_id?: string | null;
+  branch_id?: string | null;
   products: ApiPurchaseProduct[];
   payments: Array<{ type: string; amount: number; reference_id?: string }>;
   purchaseDate: string;
@@ -1617,4 +1807,251 @@ export async function apiSendPushNotification(payload: ApiSendPushPayload): Prom
   }
 
   throw new Error("Unable to send push notification.");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-path CRUD helpers (branch / warehouse / transfer / branch-role)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function toSnakeCaseBody(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined || value === null || value === "") continue;
+    result[key.replace(/[A-Z]/g, (l) => `_${l.toLowerCase()}`)] = value;
+  }
+  return result;
+}
+
+export function normalizeResponseItem<T>(payload: unknown): T | null {
+  if (!payload || typeof payload !== "object") return null;
+  const obj = payload as Record<string, unknown>;
+  const raw =
+    obj.data && typeof obj.data === "object" && !Array.isArray(obj.data)
+      ? (obj.data as Record<string, unknown>)
+      : obj;
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    if (value !== null && value !== undefined && (camelKey === "id" || camelKey.endsWith("Id"))) {
+      result[camelKey] = String(value);
+    } else if (camelKey === "status") {
+      if (value === 0 || value === "0" || value === false ||
+          (typeof value === "string" && value.toLowerCase() === "inactive")) {
+        result[camelKey] = "Inactive";
+      } else if (value === 1 || value === "1" || value === true ||
+          (typeof value === "string" && value.toLowerCase() === "active")) {
+        result[camelKey] = "Active";
+      } else {
+        result[camelKey] = value;
+      }
+    } else {
+      result[camelKey] = value;
+    }
+  }
+  return result as T;
+}
+
+// Stop retrying other candidate paths once we get a response that means
+// "this endpoint is real but the request itself was rejected" — retrying a
+// different guessed path won't fix a validation error or an auth failure.
+// Checked via the real HTTP status (ApiError.status) rather than guessing
+// from message text, since a 422's message doesn't always contain the word
+// "validation" (e.g. "The status field must be true or false.").
+function isNonRetryableApiError(e: unknown): boolean {
+  if (e instanceof ApiError) {
+    return e.status === 401 || e.status === 403 || e.status === 422;
+  }
+  if (e instanceof Error) {
+    const msg = e.message.toLowerCase();
+    return msg.includes("unauthenticated") || msg.includes("unauthorized") || msg.includes("forbidden") || msg.includes("validation");
+  }
+  return false;
+}
+
+async function multiPathCreate<T>(paths: string[], data: Record<string, unknown>): Promise<T | null> {
+  const body = toSnakeCaseBody(data);
+  let lastErr: Error | null = null;
+  for (const path of paths) {
+    try {
+      const payload = await apiPost<unknown>(path, body);
+      return normalizeResponseItem<T>(payload);
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+      // Only stop retrying on auth errors — a 422 on one path may just mean a different schema;
+      // keep trying other candidate paths before giving up.
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) throw lastErr;
+    }
+  }
+  throw lastErr ?? new Error("No endpoint responded.");
+}
+
+async function multiPathUpdate<T>(basePaths: string[], id: string, data: Record<string, unknown>): Promise<T | null> {
+  const body = toSnakeCaseBody(data);
+  let lastErr: Error | null = null;
+  for (const base of basePaths) {
+    try {
+      const payload = await apiPut<unknown>(`${base}/${id}`, body);
+      return normalizeResponseItem<T>(payload);
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) throw lastErr;
+    }
+  }
+  throw lastErr ?? new Error("No endpoint responded.");
+}
+
+async function multiPathDelete(basePaths: string[], id: string): Promise<void> {
+  let lastErr: Error | null = null;
+  for (const base of basePaths) {
+    try {
+      await apiDelete(`${base}/${id}`);
+      return;
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+      const msg = lastErr.message.toLowerCase();
+      if (msg.includes("unauthenticated") || msg.includes("unauthorized") || msg.includes("forbidden")) throw lastErr;
+    }
+  }
+  if (lastErr) throw lastErr;
+}
+
+// ── Branch CRUD ───────────────────────────────────────────────────────────────
+// Confirmed working path first — /multibranch/* and /business/* dead-end to
+// login redirects/404s for this bearer-token client and only waste a round
+// trip before falling through.
+export const BRANCH_API_PATHS = ["/branches", "/hrm/branches", "/multibranch/branches", "/business/branches"];
+export function apiGetBranches(): Promise<unknown> {
+  return (async () => {
+    for (const path of BRANCH_API_PATHS) {
+      try { return await apiGet<unknown>(path); } catch { /* try next */ }
+    }
+    return null;
+  })();
+}
+export function apiCreateBranch<T>(data: Record<string, unknown>): Promise<T | null> { return multiPathCreate<T>(BRANCH_API_PATHS, data); }
+export function apiUpdateBranch<T>(id: string, data: Record<string, unknown>): Promise<T | null> { return multiPathUpdate<T>(BRANCH_API_PATHS, id, data); }
+export function apiDeleteBranch(id: string): Promise<void> { return multiPathDelete(BRANCH_API_PATHS, id); }
+
+// ── Warehouse CRUD ────────────────────────────────────────────────────────────
+export const WAREHOUSE_API_PATHS = ["/warehouses", "/hrm/warehouses", "/multibranch/warehouses", "/business/warehouses"];
+export function apiCreateWarehouse<T>(data: Record<string, unknown>): Promise<T | null> { return multiPathCreate<T>(WAREHOUSE_API_PATHS, data); }
+export function apiUpdateWarehouse<T>(id: string, data: Record<string, unknown>): Promise<T | null> { return multiPathUpdate<T>(WAREHOUSE_API_PATHS, id, data); }
+export function apiDeleteWarehouse(id: string): Promise<void> { return multiPathDelete(WAREHOUSE_API_PATHS, id); }
+
+// ── Branch Stock (confirmed live contract — /branch-stock is a single,
+// known-correct endpoint, not a path-guessing group like the ones above) ──────
+export interface ApiBranchStockBody {
+  product_id?: number;
+  productStock?: number;
+  productPurchasePrice?: number;
+  productSalePrice?: number;
+  productWholeSalePrice?: number;
+  productDealerPrice?: number;
+  profit_percent?: number;
+  batch_no?: string;
+  mfg_date?: string;
+  expire_date?: string;
+  warehouse_id?: number;
+}
+
+export async function apiGetBranchStock(branchId: string, warehouseId?: string): Promise<unknown> {
+  const params: Record<string, string> = { branch_id: branchId };
+  if (warehouseId) params.warehouse_id = warehouseId;
+  return apiGet<unknown>("/branch-stock", params);
+}
+
+/** Add an existing catalog product to a branch's stock (increments if that
+ * product/batch already has a row there — safe to call repeatedly). */
+export async function apiAddBranchStock(branchId: string, body: ApiBranchStockBody): Promise<unknown> {
+  return apiPost<unknown>(`/branch-stock?branch_id=${encodeURIComponent(branchId)}`, body);
+}
+
+export async function apiUpdateBranchStock(stockId: string, branchId: string, body: ApiBranchStockBody): Promise<unknown> {
+  return apiPut<unknown>(`/branch-stock/${stockId}?branch_id=${encodeURIComponent(branchId)}`, body);
+}
+
+export async function apiDeleteBranchStock(stockId: string, branchId: string): Promise<void> {
+  await apiDelete<unknown>(`/branch-stock/${stockId}?branch_id=${encodeURIComponent(branchId)}`);
+}
+
+// ── Stock Transfer CRUD ───────────────────────────────────────────────────────
+export const TRANSFER_API_PATHS = ["/transfers", "/multibranch/transfers", "/stock-transfers", "/hrm/transfers"];
+export function apiCreateTransfer<T>(data: Record<string, unknown>): Promise<T | null> { return multiPathCreate<T>(TRANSFER_API_PATHS, data); }
+export function apiUpdateTransfer<T>(id: string, data: Record<string, unknown>): Promise<T | null> { return multiPathUpdate<T>(TRANSFER_API_PATHS, id, data); }
+export function apiDeleteTransfer(id: string): Promise<void> { return multiPathDelete(TRANSFER_API_PATHS, id); }
+
+// ── Branch Role CRUD ──────────────────────────────────────────────────────────
+export const BRANCH_ROLE_API_PATHS = ["/branch-roles", "/multibranch/roles", "/multibranch/branch-roles", "/hrm/branch-roles", "/roles"];
+export function apiCreateBranchRole<T>(data: Record<string, unknown>): Promise<T | null> { return multiPathCreate<T>(BRANCH_ROLE_API_PATHS, data); }
+export function apiUpdateBranchRole<T>(id: string, data: Record<string, unknown>): Promise<T | null> { return multiPathUpdate<T>(BRANCH_ROLE_API_PATHS, id, data); }
+export function apiDeleteBranchRole(id: string): Promise<void> { return multiPathDelete(BRANCH_ROLE_API_PATHS, id); }
+
+// ── Branch-scoped Users ───────────────────────────────────────────────────────
+// `visibility` inner permission keys must stay camelCase — do NOT run them
+// through toSnakeCaseBody, only the outer body keys get snake_cased.
+
+const USER_API_PATHS = ["/users", "/business/users", "/multibranch/users", "/hrm/users", "/staff"];
+
+export async function apiGetUsers(): Promise<unknown> {
+  for (const path of USER_API_PATHS) {
+    try {
+      const payload = await apiGet<unknown>(path);
+      // Reject empty / non-list payloads so we try the next path
+      if (payload && typeof payload === "object") {
+        const obj = payload as Record<string, unknown>;
+        const hasData =
+          (Array.isArray(obj.data) && (obj.data as unknown[]).length > 0) ||
+          (Array.isArray(payload) && (payload as unknown[]).length > 0) ||
+          (obj.data && typeof obj.data === "object" &&
+            Array.isArray((obj.data as Record<string, unknown>).data) &&
+            ((obj.data as Record<string, unknown>).data as unknown[]).length > 0);
+        if (hasData) return payload;
+      }
+    } catch { /* try next */ }
+  }
+  // Last-resort fallback — return whatever /users gives (even empty)
+  return apiGet<unknown>("/users").catch(() => ({ data: [] }));
+}
+
+export async function apiCreateUser<T>(body: Record<string, unknown>): Promise<T | null> {
+  for (const path of USER_API_PATHS) {
+    try {
+      const raw = await apiPost<unknown>(path, body);
+      return normalizeResponseItem<T>(raw);
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      // Stop immediately for auth / validation failures — retrying won't fix them.
+      if (e instanceof ApiError && (e.status === 422 || e.status === 403 || e.status === 401)) throw e;
+      if (e instanceof UnauthenticatedError) throw e;
+    }
+  }
+  throw new Error("Could not create user — no valid endpoint responded.");
+}
+
+export async function apiUpdateUser<T>(id: string, body: Record<string, unknown>): Promise<T | null> {
+  for (const path of USER_API_PATHS) {
+    try {
+      const raw = await apiPut<unknown>(`${path}/${id}`, body);
+      return normalizeResponseItem<T>(raw);
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (e instanceof ApiError && (e.status === 422 || e.status === 403 || e.status === 401)) throw e;
+      if (e instanceof UnauthenticatedError) throw e;
+    }
+  }
+  throw new Error("Could not update user — no valid endpoint responded.");
+}
+
+export async function apiDeleteUser(id: string): Promise<void> {
+  for (const path of USER_API_PATHS) {
+    try {
+      await apiDelete<void>(`${path}/${id}`);
+      return;
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (e instanceof ApiError && (e.status === 403 || e.status === 401)) throw e;
+      if (e instanceof UnauthenticatedError) throw e;
+    }
+  }
+  throw new Error("Could not delete user — no valid endpoint responded.");
 }

@@ -48,6 +48,10 @@ export interface Visibility {
   payrollReportPermission?: boolean;
   leaveReportPermission?: boolean;
   hrmPermission?: boolean;
+  branchesPermission?: boolean;
+  warehousesPermission?: boolean;
+  transfersPermission?: boolean;
+  branchRolesPermission?: boolean;
 }
 
 function normalizeRole(value: string | null | undefined): AppRole {
@@ -127,7 +131,7 @@ export function hasPermission(key: keyof Visibility, role: AppRole = getCurrentR
 }
 
 export function canManageData(role: AppRole = getCurrentRole()): boolean {
-  return role === "shop-owner" || role === "manager";
+  return role === "shop-owner" || role === "manager" || role === "staff";
 }
 
 export function canAccessSettings(role: AppRole = getCurrentRole()): boolean {
@@ -183,6 +187,12 @@ const ROUTE_PERMISSION_MAP: Record<string, keyof Visibility> = {
   "/hrm/attendance-report": "attendanceReportPermission",
   "/hrm/payroll-report": "payrollReportPermission",
   "/hrm/leave-report": "leaveReportPermission",
+  "/branches": "branchesPermission",
+  "/warehouses": "warehousesPermission",
+  "/transfers": "transfersPermission",
+  "/branch-roles": "branchRolesPermission",
+  "/items": "salePermission",
+  "/dashboard": "reportsPermission",
 };
 
 /** Check whether the current user can access a given route path */
@@ -201,7 +211,7 @@ export function canAccessRoute(path: string, role: AppRole = getCurrentRole()): 
   }
   // Report routes
   if (path.startsWith("/report/")) return hasPermission("reportsPermission", role);
-  // Allow everything else (home, dashboard, profile, notifications)
+  // Allow everything else (home, profile, notifications)
   return true;
 }
 

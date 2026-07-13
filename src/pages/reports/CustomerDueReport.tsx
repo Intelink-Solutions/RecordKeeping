@@ -9,7 +9,7 @@ const CustomerDueReport = () => {
 
   return (
     <ReportPage
-      title="Customer Due Report"
+      title="Customer Debt Report"
       data={withDue}
       columns={[
         { key: "name", label: "Customer" },
@@ -17,9 +17,9 @@ const CustomerDueReport = () => {
         { key: "type", label: "Type", render: (c) => (
           <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700">{c.type}</span>
         )},
-        { key: "due", label: "Due", render: (c) => <span className="font-semibold text-destructive">{formatCurrency(c.due, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
+        { key: "due", label: "Debt", render: (c) => <span className="font-semibold text-destructive">{formatCurrency(c.due, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> },
       ]}
-      summaryCards={[{ label: "Total Due", value: formatCurrency(totalDue), color: "#e74c3c" }]}
+      summaryCards={[{ label: "Total Debt", value: formatCurrency(totalDue), color: "#e74c3c" }]}
       searchKeys={["name", "phone"]}
       showDateFilter={false}
     />

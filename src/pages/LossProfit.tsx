@@ -16,7 +16,7 @@ const LossProfit = () => {
   const totalLoss = filtered.reduce((s, sale) => s + Math.abs(Math.min(0, sale.profit)), 0);
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Loss/Profit" />
       <div className="px-4 py-4 space-y-4">
         <div className="grid grid-cols-2 gap-3">

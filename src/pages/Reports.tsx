@@ -42,9 +42,10 @@ const reportSections = [
   {
     title: "Parties",
     items: [
-      { icon: Users, label: "Customer Due", path: "/report/customer-due", color: "#27ae60" },
-      { icon: Truck, label: "Supplier Due", path: "/report/supplier-due", color: "#e67e22" },
-      { icon: DollarSign, label: "Due Transactions", path: "/report/due-transactions", color: "#e74c3c" },
+      { icon: Users, label: "Customer Debt", path: "/report/customer-due", color: "#27ae60" },
+      { icon: Truck, label: "Supplier Debt", path: "/report/supplier-due", color: "#e67e22" },
+      { icon: DollarSign, label: "Debt Transactions", path: "/report/due-transactions", color: "#e74c3c" },
+      { icon: History, label: "Debt History", path: "/report/debt-history", color: "#16a085" },
       { icon: Star, label: "Top Customers", path: "/report/top-customers", color: "#2980b9" },
       { icon: Star, label: "Top Suppliers", path: "/report/top-suppliers", color: "#8e44ad" },
       { icon: Star, label: "Top Products", path: "/report/top-products", color: "#27ae60" },
@@ -55,7 +56,7 @@ const reportSections = [
 const Reports = () => {
   const navigate = useNavigate();
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Reports" />
       <div className="px-4 py-4 space-y-5">
         {reportSections.map((section) => (

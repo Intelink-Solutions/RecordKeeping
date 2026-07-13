@@ -6,6 +6,7 @@ import { store, Employee, Department, Designation, Shift } from "@/lib/store";
 import { useHrmLiveList } from "@/hooks/use-hrm-live-list";
 import { apiCreateHrmResourceForm, apiUpdateHrmResourceForm, apiDeleteHrmResource } from "@/lib/api";
 import { getImageUrl } from "@/lib/image-utils";
+import { validateOptionalEmail, validateOptionalPhone } from "@/lib/validators";
 
 const TODAY = new Date().toISOString().split("T")[0];
 
@@ -211,6 +212,10 @@ const Employees = () => {
           : "Please select a Shift.";
         if (!item.salary || item.salary <= 0) return "Salary must be greater than 0.";
         if (!item.joinDate) return "Join date is required.";
+        const emailError = validateOptionalEmail(item.email);
+        if (emailError) return emailError;
+        const phoneError = validateOptionalPhone(item.phone);
+        if (phoneError) return phoneError;
         return null;
       }}
       searchKey="name"

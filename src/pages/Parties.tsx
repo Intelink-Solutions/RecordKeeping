@@ -31,7 +31,7 @@ const Parties = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Parties List" />
       <div className="px-4 py-3 space-y-2">
         {parties.map((p) => (
@@ -45,7 +45,7 @@ const Parties = () => {
             </div>
             <div className="text-right">
               {p.due > 0 && <p className="font-bold text-sm">{formatCurrency(p.due)}</p>}
-              {p.due > 0 && <p className="text-xs text-warning font-medium">Due</p>}
+              {p.due > 0 && <p className="text-xs text-warning font-medium">Debt</p>}
             </div>
             <ChevronRight size={18} className="text-muted-foreground" />
           </div>

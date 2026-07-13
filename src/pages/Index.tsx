@@ -2,21 +2,24 @@ import {
   ShoppingCart, Users, ShoppingBag, Package, ListChecks, BarChart3,
   FileText, TrendingUp, Wallet, Receipt, DollarSign, CreditCard,
   UserCheck, Truck, Tags, BookOpen, Ruler, Landmark, Bell, UserCircle, ShieldCheck,
-  Briefcase, Clock, CalendarDays, CalendarOff, ClipboardList, History
+  Briefcase, Clock, CalendarDays, CalendarOff, ClipboardList, History,
+  GitBranch, Building2, ArrowLeftRight, KeyRound, PackageCheck, PackagePlus,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import MenuCard from "@/components/MenuCard";
+import ActionCard from "@/components/ActionCard";
 import BottomNav from "@/components/BottomNav";
 import { store } from "@/lib/store";
 import SyncStatusBadge from "@/components/SyncStatusBadge";
-import logo from "@/assets/logo.png";
-import { formatCurrency } from "@/lib/currency";
 import { useStoreRefresh } from "@/hooks/use-live-data";
 import { useSecurityPrefs } from "@/hooks/use-security-prefs";
-import { maskSensitiveValue } from "@/lib/security";
 import { filterMenuItems } from "@/lib/permissions";
 import { useAppContext } from "@/hooks/use-app-context";
+import BranchSwitcher from "@/components/BranchSwitcher";
+import BrandWordmark from "@/components/BrandWordmark";
+import SetupWizard from "@/components/SetupWizard";
+import HomeSummaryCard from "@/components/HomeSummaryCard";
 
 const salesMenu = [
   { icon: ShoppingCart, label: "New Sale", path: "/add-sale", color: "#e74c3c" },
@@ -42,7 +45,7 @@ const inventoryMenu = [
 const peopleMenu = [
   { icon: UserCheck, label: "Customers", path: "/customers", color: "#27ae60" },
   { icon: Truck, label: "Suppliers", path: "/suppliers", color: "#e67e22" },
-  { icon: DollarSign, label: "Due List", path: "/due-list", color: "#e74c3c" },
+  { icon: DollarSign, label: "Debt List", path: "/due-list", color: "#e74c3c" },
 ];
 
 const financeMenu = [
@@ -50,6 +53,15 @@ const financeMenu = [
   { icon: Wallet, label: "Expenses", path: "/expenses", color: "#e74c3c" },
   { icon: DollarSign, label: "Income", path: "/income", color: "#27ae60" },
   { icon: FileText, label: "Reports", path: "/reports", color: "#8e44ad" },
+];
+
+const branchMenu = [
+  { icon: GitBranch,      label: "Branches",        path: "/branches",            color: "#2980b9" },
+  { icon: Building2,      label: "Warehouses",      path: "/warehouses",          color: "#27ae60" },
+  { icon: ArrowLeftRight, label: "Transfers",       path: "/transfers",           color: "#e67e22" },
+  { icon: PackagePlus,    label: "Branch Stock",    path: "/branch-stock",        color: "#16a085" },
+  { icon: KeyRound,       label: "Branch Roles",    path: "/branch-roles",        color: "#8e44ad" },
+  { icon: History,        label: "All Branches",    path: "/all-branches-history", color: "#16a085" },
 ];
 
 const hrmMenu = [
@@ -73,79 +85,180 @@ const Index = () => {
   useStoreRefresh();
   const security = useSecurityPrefs();
   const { role } = useAppContext();
-  const sales = store.getSales();
-  const purchases = store.getPurchases();
-  const expenses = store.getExpenses();
+  const effectiveBranchId = store.getEffectiveBranchId();
+  const allSales = store.getSales();
+  const allExpenses = store.getExpenses();
+  const allPurchases = store.getPurchases();
+  // Scope stats to the active/assigned branch
+  const sales = effectiveBranchId ? allSales.filter((s) => !s.branchId || s.branchId === effectiveBranchId) : allSales;
+  const expenses = effectiveBranchId ? allExpenses.filter((e) => !e.branchId || e.branchId === effectiveBranchId) : allExpenses;
+  const purchases = effectiveBranchId ? allPurchases.filter((p) => !p.branchId || p.branchId === effectiveBranchId) : allPurchases;
   const unreadNotifications = store.getNotifications().filter((item) => !item.read).length;
-  const totalSales = sales.reduce((s, sale) => s + sale.total, 0);
-  const totalPurchases = purchases.reduce((s, p) => s + p.total, 0);
-  const totalProfit = sales.reduce((s, sale) => s + sale.profit, 0);
-  const totalExpense = expenses.reduce((s, e) => s + e.amount, 0);
+  const activeBranch = effectiveBranchId ? store.getBranches().find((b) => b.id === effectiveBranchId) : null;
+
+  // Pending transfers TO this branch
+  const pendingIncoming = effectiveBranchId
+    ? store.getTransfers().filter((t) => t.status === "pending" && t.toBranchId === effectiveBranchId)
+    : [];
 
   const fSales = filterMenuItems(salesMenu, role);
   const fPurchase = filterMenuItems(purchaseMenu, role);
   const fInventory = filterMenuItems(inventoryMenu, role);
   const fPeople = filterMenuItems(peopleMenu, role);
   const fFinance = filterMenuItems(financeMenu, role);
+  const fBranch = filterMenuItems(branchMenu, role);
   const fHrm = filterMenuItems(hrmMenu, role);
 
+  const profile = store.getBusinessProfile();
+  const syncOnline = profile.isOnline;
+
   return (
-    <div className="min-h-screen bg-background pb-20">
-      {/* Top Nav - White */}
-      <div className="bg-white px-5 py-3 shadow-sm flex items-center justify-between">
-        <img src={logo} alt="Key Doctors Solutions" className="h-10 object-contain" />
-        <div className="flex items-center gap-3">
-          <SyncStatusBadge />
-          <button onClick={() => navigate("/notifications")} className="relative p-2 rounded-full hover:bg-muted transition-colors" aria-label="Open notifications">
-            <Bell className="h-5 w-5 text-foreground" />
-            {unreadNotifications > 0 && <span className="absolute top-1 right-1 h-2 w-2 bg-destructive rounded-full" />}
-          </button>
-          <button onClick={() => navigate("/profile")} className="p-1 rounded-full hover:bg-muted transition-colors" aria-label="Open profile">
-            <UserCircle className="h-8 w-8 text-foreground" />
-          </button>
+    <div className="min-h-screen bg-background pb-nav">
+      {/* Top Nav — light brand header */}
+      <div className="sticky top-0 z-40 safe-top bg-background/95 backdrop-blur-sm border-b border-border">
+        <div className="flex items-center gap-2.5 px-4 h-16">
+          {/* Icon mark + wordmark */}
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 overflow-hidden"
+              style={{ background: profile.logo ? "hsl(var(--card))" : "hsl(var(--primary))" }}
+            >
+              {profile.logo ? (
+                <img src={profile.logo} alt="Shop icon" className="w-full h-full object-contain p-1" draggable={false} />
+              ) : (
+                <KeyRound size={17} style={{ color: "hsl(var(--primary-foreground))" }} />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="font-extrabold text-[15px] leading-tight tracking-tight truncate">
+                <BrandWordmark shortName={profile.shortName} defaultAccentColor="hsl(var(--foreground))" />
+              </p>
+              <div className="flex items-center gap-1.5 mt-[1px]">
+                <span
+                  className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{
+                    background: syncOnline ? "#22c55e" : "#f59e0b",
+                    boxShadow: syncOnline ? "0 0 4px rgba(34,197,94,0.6)" : "0 0 4px rgba(245,158,11,0.6)",
+                  }}
+                />
+                <span className="text-[10px] font-medium text-muted-foreground tracking-wide">
+                  {syncOnline ? "Live" : "Offline"}
+                </span>
+              </div>
+            </div>
+          </div>
+          {/* Action icons */}
+          <div className="flex items-center gap-1 shrink-0">
+            <BranchSwitcher />
+            <SyncStatusBadge />
+            <button
+              onClick={() => navigate("/notifications")}
+              className="relative flex items-center justify-center w-9 h-9 rounded-full text-muted-foreground hover:bg-muted transition-colors"
+              aria-label="Open notifications"
+            >
+              <Bell className="h-5 w-5" />
+              {unreadNotifications > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                  {unreadNotifications > 9 ? "9+" : unreadNotifications}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => navigate("/profile")}
+              className="flex items-center justify-center w-9 h-9 rounded-full text-muted-foreground hover:bg-muted transition-colors"
+              aria-label="Open profile"
+            >
+              <UserCircle className="h-6 w-6" />
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Summary Card */}
-      <div className="bg-primary px-5 pt-5 pb-8 rounded-b-3xl">
-        <div className="bg-black dark:bg-background rounded-2xl p-4 border border-white/10 dark:border-border">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-primary font-bold text-base">Today's Summary</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: "Sales", value: maskSensitiveValue(formatCurrency(totalSales), security.hideAmounts) },
-              { label: "Purchased", value: maskSensitiveValue(formatCurrency(totalPurchases), security.hideAmounts) },
-              { label: "Profit", value: maskSensitiveValue(formatCurrency(totalProfit), security.hideAmounts) },
-              { label: "Expense", value: maskSensitiveValue(formatCurrency(totalExpense), security.hideAmounts) },
-            ].map((item) => (
-              <div key={item.label}>
-                <p className="text-primary/70 text-xs font-medium">{item.label}</p>
-                <p className="text-white font-bold text-lg">{item.value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+      <div className="px-4 mt-4">
+        <HomeSummaryCard
+          sales={sales}
+          expenses={expenses}
+          purchases={purchases}
+          activeBranchName={activeBranch?.name}
+          hideAmounts={security.hideAmounts}
+        />
       </div>
 
+      {/* Incoming transfer alert — shown when branch has pending transfers to accept */}
+      {pendingIncoming.length > 0 && (
+        <div className="px-4 mt-4">
+          <button
+            onClick={() => navigate("/transfers")}
+            className="w-full flex items-center gap-3 bg-green-600/10 border border-green-600/30 rounded-2xl px-4 py-3 text-left active:bg-green-600/20 transition-colors"
+          >
+            <div className="w-9 h-9 rounded-full bg-green-600 flex items-center justify-center shrink-0">
+              <PackageCheck size={18} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-green-700 dark:text-green-400">
+                {pendingIncoming.length} transfer{pendingIncoming.length > 1 ? "s" : ""} awaiting acceptance
+              </p>
+              <p className="text-xs text-green-600/70 dark:text-green-500/70 truncate">
+                Tap to review and accept incoming stock
+              </p>
+            </div>
+            <ArrowLeftRight size={16} className="text-green-600 shrink-0" />
+          </button>
+        </div>
+      )}
+
       <div className="px-4 mt-5 space-y-5">
-        {fSales.length > 0 && <Section title="Sales" items={fSales} />}
-        {fPurchase.length > 0 && <Section title="Purchase" items={fPurchase} />}
-        {fInventory.length > 0 && <Section title="Inventory" items={fInventory} />}
-        {fPeople.length > 0 && <Section title="People" items={fPeople} />}
-        {fFinance.length > 0 && <Section title="Finance & Reports" items={fFinance} />}
-        {fHrm.length > 0 && <Section title="HRM" items={fHrm} />}
+        {fSales.length > 0 && <ActionSection title="Sales" items={fSales} viewAllPath="/sales" />}
+        {fPurchase.length > 0 && <ActionSection title="Purchase" items={fPurchase} viewAllPath="/purchases" />}
+        {fInventory.length > 0 && <MenuSection title="Inventory" items={fInventory} viewAllPath="/stock" />}
+        {fPeople.length > 0 && <MenuSection title="People" items={fPeople} viewAllPath="/customers" />}
+        {fFinance.length > 0 && <MenuSection title="Finance & Reports" items={fFinance} viewAllPath="/reports" />}
+        {fBranch.length > 0 && <MenuSection title="Branches & Warehouses" items={fBranch} viewAllPath="/branches" />}
+        {fHrm.length > 0 && <MenuSection title="HRM" items={fHrm} viewAllPath="/hrm" />}
       </div>
 
       <BottomNav />
+      <SetupWizard />
     </div>
   );
 };
 
-const Section = ({ title, items }: { title: string; items: { icon: LucideIcon; label: string; path: string; color: string }[] }) => (
+type SectionItem = { icon: LucideIcon; label: string; path: string; color: string };
+
+const SectionHeader = ({ title, viewAllPath }: { title: string; viewAllPath: string }) => {
+  const navigate = useNavigate();
+  return (
+    <div className="flex items-center justify-between mb-2.5">
+      <h3 className="font-bold text-sm text-foreground tracking-tight">{title}</h3>
+      <button
+        onClick={() => navigate(viewAllPath)}
+        className="text-xs font-semibold"
+        style={{ color: "hsl(var(--primary))" }}
+      >
+        View all
+      </button>
+    </div>
+  );
+};
+
+/** Sales/Purchase — larger color-tinted action cards, 3 per row. */
+const ActionSection = ({ title, items, viewAllPath }: { title: string; items: SectionItem[]; viewAllPath: string }) => (
   <div>
-    <h3 className="font-bold text-sm text-muted-foreground uppercase tracking-wider mb-2">{title}</h3>
-    <div className="grid grid-cols-3 gap-2">
+    <SectionHeader title={title} viewAllPath={viewAllPath} />
+    <div className="grid grid-cols-3 gap-2.5">
+      {items.map((item) => (
+        <ActionCard key={item.label} {...item} />
+      ))}
+    </div>
+  </div>
+);
+
+/** Everything else — compact plain menu cards, 4 per row. */
+const MenuSection = ({ title, items, viewAllPath }: { title: string; items: SectionItem[]; viewAllPath: string }) => (
+  <div>
+    <SectionHeader title={title} viewAllPath={viewAllPath} />
+    <div className="grid grid-cols-4 gap-2">
       {items.map((item) => (
         <MenuCard key={item.label} {...item} />
       ))}

@@ -13,6 +13,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { apiCreateParty, apiUpdateParty, apiDeleteParty } from "@/lib/api";
 import { syncLiveBusinessData } from "@/lib/live-sync";
 import { useLiveData, showSaved } from "@/hooks/use-live-data";
+import { validateOptionalEmail, validateOptionalPhone } from "@/lib/validators";
 
 const Suppliers = () => {
   const { toast } = useToast();
@@ -32,6 +33,10 @@ const Suppliers = () => {
 
   const addSupplier = async () => {
     if (!form.name.trim()) return;
+    const emailError = validateOptionalEmail(form.email);
+    if (emailError) { toast({ title: emailError, variant: "destructive" }); return; }
+    const phoneError = validateOptionalPhone(form.phone);
+    if (phoneError) { toast({ title: phoneError, variant: "destructive" }); return; }
     setSaving(true);
     try {
       const due = Number(form.initialDue) || 0;
@@ -47,13 +52,17 @@ const Suppliers = () => {
       await syncLiveBusinessData();
       setForm({ name: "", phone: "", email: "", address: "", initialDue: "0" }); setShowAdd(false);
       showSaved("Supplier added!");
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to add supplier", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to add supplier", variant: "destructive" });
     } finally { setSaving(false); }
   };
 
   const saveEdit = async () => {
     if (!editSupplier) return;
+    const emailError = validateOptionalEmail(editSupplier.email);
+    if (emailError) { toast({ title: emailError, variant: "destructive" }); return; }
+    const phoneError = validateOptionalPhone(editSupplier.phone);
+    if (phoneError) { toast({ title: phoneError, variant: "destructive" }); return; }
     setSaving(true);
     try {
       await apiUpdateParty(editSupplier.id, {
@@ -66,8 +75,8 @@ const Suppliers = () => {
       await syncLiveBusinessData();
       setEditSupplier(null);
       showSaved("Supplier updated!");
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to update supplier", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to update supplier", variant: "destructive" });
     } finally { setSaving(false); }
   };
 
@@ -78,8 +87,8 @@ const Suppliers = () => {
       await apiDeleteParty(confirmDeleteId);
       await syncLiveBusinessData();
       showSaved("Supplier deleted");
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to delete supplier", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to delete supplier", variant: "destructive" });
     } finally {
       setDeleting(false);
       setConfirmDeleteId(null);
@@ -87,7 +96,7 @@ const Suppliers = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Suppliers" />
       <div className="px-4 py-3 space-y-3">
         {!canManageData && (
@@ -104,7 +113,7 @@ const Suppliers = () => {
               {s.phone && <p className="text-[11px] text-muted-foreground">{s.phone}</p>}
             </div>
             <div className="text-right">
-              {s.due > 0 && <><p className="font-bold text-sm">{formatCurrency(s.due)}</p><p className="text-[10px] text-warning font-medium">Due</p></>}
+              {s.due > 0 && <><p className="font-bold text-sm">{formatCurrency(s.due)}</p><p className="text-[10px] text-warning font-medium">Debt</p></>}
             </div>
             <div className="flex gap-1">
               {canManageData && (
@@ -130,7 +139,7 @@ const Suppliers = () => {
             <Input placeholder="Phone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
             <Input placeholder="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
             <Input placeholder="Address" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} />
-            <Input placeholder="Initial Due" type="number" value={form.initialDue} onChange={e => setForm({ ...form, initialDue: e.target.value })} />
+            <Input placeholder="Initial Debt" type="number" value={form.initialDue} onChange={e => setForm({ ...form, initialDue: e.target.value })} />
             <button onClick={addSupplier} disabled={saving} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl disabled:opacity-60">{saving ? "Saving..." : "Save"}</button>
           </div>
         </DialogContent>

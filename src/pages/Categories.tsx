@@ -36,8 +36,8 @@ const Categories = () => {
       await syncLiveBusinessData();
       setName(""); setDesc(""); setIcon(""); setIconPreview(null); setShowAdd(false);
       showSaved("Category added!");
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to add category", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to add category", variant: "destructive" });
     } finally { setSaving(false); }
   };
 
@@ -48,8 +48,8 @@ const Categories = () => {
       await apiUpdateCategory(editItem.id, editItem.name);
       await syncLiveBusinessData();
       setEditItem(null);
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to update category", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to update category", variant: "destructive" });
     } finally { setSaving(false); }
   };
 
@@ -57,13 +57,13 @@ const Categories = () => {
     try {
       await apiDeleteCategory(id);
       await syncLiveBusinessData();
-    } catch (e: any) {
-      toast({ title: e.message || "Failed to delete category", variant: "destructive" });
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Failed to delete category", variant: "destructive" });
     }
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Categories" />
       <div className="px-4 py-3 space-y-3">
         <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>

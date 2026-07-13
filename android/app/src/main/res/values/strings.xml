@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Keydoctors POS</string>
-    <string name="title_activity_main">Keydoctors POS</string>
+    <string name="app_name">RecordKEEPING</string>
+    <string name="title_activity_main">RecordKEEPING</string>
     <string name="package_name">com.keydoctors.pos</string>
     <string name="custom_url_scheme">com.keydoctors.pos</string>
 </resources>

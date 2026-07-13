@@ -93,7 +93,7 @@ const TopCustomers = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Top Customers" />
 
       <div className="px-4 py-4 space-y-4">

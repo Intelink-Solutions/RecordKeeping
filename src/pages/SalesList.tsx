@@ -1,36 +1,60 @@
 import { useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import BottomNav from "@/components/BottomNav";
-import { store, Sale, SaleItem } from "@/lib/store";
+import { store, Sale, SaleItem, paymentStatusLabel } from "@/lib/store";
 import {
   Search, Trash2, Pencil, RotateCcw, MoreVertical,
-  ImageDown, Eye, Minus, Plus, X,
+  ImageDown, Eye, Minus, Plus, X, CreditCard,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import InvoiceModal from "@/components/InvoiceModal";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import PayDueDialog, { PayDueParty } from "@/components/PayDueDialog";
 import { useAppContext } from "@/hooks/use-app-context";
 import { formatCurrency } from "@/lib/currency";
 import { useDebounce } from "@/hooks/use-debounce";
 import { apiDeleteSale, apiUpdateSale } from "@/lib/api";
 import { syncLiveBusinessData } from "@/lib/live-sync";
+import { useScrollRefresh } from "@/hooks/use-scroll-refresh";
 import { useLiveData, showSaved } from "@/hooks/use-live-data";
 
 const SalesList = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { canManageData, roleLabel } = useAppContext();
-  const sales = useLiveData(() => store.getSales());
+  const allSales = useLiveData(() => store.getSales());
   const allProducts = useLiveData(() => store.getProducts());
+  useScrollRefresh(() => syncLiveBusinessData().catch(() => {}));
+  const effectiveBranchId = store.getEffectiveBranchId();
+  // Show only this branch's sales when a branch is active (or staff is assigned to a branch)
+  const sales = effectiveBranchId
+    ? allSales.filter((s) => !s.branchId || s.branchId === effectiveBranchId)
+    : allSales;
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [menuSaleId, setMenuSaleId] = useState<string | null>(null);
   const [invoiceSale, setInvoiceSale] = useState<Sale | null>(null);
+  const customers = useLiveData(() => store.getCustomers());
+
+  // ── Pay customer due state ───────────────────────────────────────────────────
+  const [duePickerOpen, setDuePickerOpen] = useState(false);
+  const [dueSearch, setDueSearch] = useState("");
+  const [payParty, setPayParty] = useState<PayDueParty | null>(null);
+  const [payDialogOpen, setPayDialogOpen] = useState(false);
+  const dueCustomers = customers.filter(
+    (c) => c.due > 0 && c.name.toLowerCase().includes(dueSearch.toLowerCase())
+  );
+  const openPayFor = (c: { id: string; name: string; due: number }) => {
+    setPayParty({ id: c.id, name: c.name, due: c.due, source: "customer" });
+    setDuePickerOpen(false);
+    setPayDialogOpen(true);
+  };
 
   // ── Confirm delete state ─────────────────────────────────────────────────────
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -220,13 +244,21 @@ const SalesList = () => {
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader
         title="Sales List"
         rightAction={
           canManageData && selectedIds.length > 0 ? (
             <button onClick={confirmDeleteMulti} className="text-destructive text-sm font-semibold">
               Delete ({selectedIds.length})
+            </button>
+          ) : canManageData ? (
+            <button
+              onClick={() => { setDueSearch(""); setDuePickerOpen(true); }}
+              className="flex items-center gap-1 text-primary text-sm font-semibold"
+            >
+              <CreditCard size={15} />
+              Pay Debt
             </button>
           ) : undefined
         }
@@ -277,7 +309,7 @@ const SalesList = () => {
                           : s.status === "Due" ? "bg-destructive/15 text-destructive"
                           : "bg-warning/15 text-warning"
                       }`}>
-                        {s.status}
+                        {paymentStatusLabel(s.status)}
                       </span>
                       {s.returned && (
                         <span className="ml-1 inline-block text-[10px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
@@ -294,7 +326,7 @@ const SalesList = () => {
                   <div className="flex items-center justify-between mt-2">
                     <div>
                       <p className="text-xs text-muted-foreground">Total: {formatCurrency(s.total)}</p>
-                      {s.due > 0 && <p className="text-xs text-destructive font-semibold">Due: {formatCurrency(s.due)}</p>}
+                      {s.due > 0 && <p className="text-xs text-destructive font-semibold">Debt: {formatCurrency(s.due)}</p>}
                       <p className="text-xs font-semibold text-primary">Profit: {formatCurrency(s.profit)}</p>
                     </div>
 
@@ -476,7 +508,7 @@ const SalesList = () => {
               </div>
               {editDue > 0 && (
                 <div className="flex justify-between text-destructive font-semibold">
-                  <span>Due</span>
+                  <span>Debt</span>
                   <span>{formatCurrency(editDue, { minimumFractionDigits: 2 })}</span>
                 </div>
               )}
@@ -545,6 +577,47 @@ const SalesList = () => {
           + New Sale
         </button>
       )}
+
+      <Dialog open={duePickerOpen} onOpenChange={setDuePickerOpen}>
+        <DialogContent className="w-full max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Pay Customer Debt</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search customer..."
+                value={dueSearch}
+                onChange={(e) => setDueSearch(e.target.value)}
+                className="pl-9"
+                autoFocus
+              />
+            </div>
+            <div className="max-h-80 overflow-y-auto space-y-2">
+              {dueCustomers.map((c) => (
+                <div key={c.id} className="flex items-center gap-3 rounded-lg border border-border p-2.5">
+                  <div className="w-9 h-9 rounded-full bg-accent flex items-center justify-center text-sm font-bold text-accent-foreground shrink-0">
+                    {c.name[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{c.name}</p>
+                    <p className="text-xs text-destructive font-semibold">{formatCurrency(c.due)} due</p>
+                  </div>
+                  <Button size="sm" onClick={() => openPayFor(c)} className="gap-1 shrink-0">
+                    <CreditCard size={14} />
+                    Pay
+                  </Button>
+                </div>
+              ))}
+              {dueCustomers.length === 0 && (
+                <p className="text-center text-sm text-muted-foreground py-6">No customers with an outstanding due</p>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <PayDueDialog party={payParty} open={payDialogOpen} onOpenChange={setPayDialogOpen} />
 
       <ConfirmDialog
         open={!!confirmId}

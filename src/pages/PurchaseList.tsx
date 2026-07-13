@@ -14,13 +14,19 @@ import { formatCurrency } from "@/lib/currency";
 import { useDebounce } from "@/hooks/use-debounce";
 import { apiDeletePurchase } from "@/lib/api";
 import { syncLiveBusinessData } from "@/lib/live-sync";
+import { useScrollRefresh } from "@/hooks/use-scroll-refresh";
 import { useLiveData, showSaved } from "@/hooks/use-live-data";
 
 const PurchaseList = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { canManageData, roleLabel } = useAppContext();
-  const purchases = useLiveData(() => store.getPurchases());
+  const allPurchases = useLiveData(() => store.getPurchases());
+  useScrollRefresh(() => syncLiveBusinessData().catch(() => {}));
+  const effectiveBranchId = store.getEffectiveBranchId();
+  const purchases = effectiveBranchId
+    ? allPurchases.filter((p) => !p.branchId || p.branchId === effectiveBranchId)
+    : allPurchases;
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -82,7 +88,7 @@ const PurchaseList = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="Purchase List" rightAction={canManageData && selectedIds.length > 0 ? (
         <button onClick={() => setConfirmMulti(true)} className="text-destructive text-sm font-semibold">
           Delete ({selectedIds.length})

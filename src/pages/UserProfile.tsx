@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/hooks/use-app-context";
 import { apiGetProfile, apiSaveUserProfile, apiSignOut } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
+import { validateOptionalEmail, validateOptionalPhone } from "@/lib/validators";
 
 const getInitials = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -49,6 +50,10 @@ const UserProfile = () => {
       toast({ title: "Permission required", description: "Only Shop Owner can edit profile", variant: "destructive" });
       return;
     }
+    const emailError = validateOptionalEmail(profile.email);
+    if (emailError) { toast({ title: emailError, variant: "destructive" }); return; }
+    const phoneError = validateOptionalPhone(profile.phone);
+    if (phoneError) { toast({ title: phoneError, variant: "destructive" }); return; }
     store.saveUserProfile(profile);
     if (store.getBusinessProfile().isOnline) {
       apiSaveUserProfile({
@@ -76,7 +81,7 @@ const UserProfile = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-nav">
       <PageHeader title="User Profile" showBack={true} />
 
       <div className="px-4 py-4 space-y-5">
